@@ -1,0 +1,21 @@
+   # Secrets
+   .env
+   *.key
+   *.pem
+   secrets/
+
+   # Python
+   __pycache__/
+   *.pyc
+   venv/
+
+   # Node
+   node_modules/
+
+   # Modeles et donnees lourdes
+   *.pt
+   *.onnx
+   data/
+
+   # Divers
+   .vscode/
