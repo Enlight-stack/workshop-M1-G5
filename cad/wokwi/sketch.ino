@@ -59,21 +59,28 @@ const float HUM_CRITICAL_HIGH = 85.0;
 // SEUILS GAZ
 // ===============================
 
-// On calcule une baseline au démarrage.
-// Ensuite on regarde l'écart par rapport
-// à cette valeur normale.
+// Variation par rapport à la baseline
 
 const int GAS_DELTA_WARNING = 400;
 const int GAS_DELTA_CRITICAL = 800;
+
+// Seuils absolus de sécurité
+// Même si la baseline est déjà élevée,
+// ces valeurs déclenchent une alerte.
+
+const int GAS_ABSOLUTE_WARNING = 3000;
+const int GAS_ABSOLUTE_CRITICAL = 3500;
 
 // ===============================
 // TEMPS
 // ===============================
 
 // Calibration gaz pendant 5 secondes
+
 const unsigned long CALIBRATION_TIME = 5000;
 
 // Lecture chaque seconde
+
 const unsigned long READ_INTERVAL = 1000;
 
 // ===============================
@@ -97,37 +104,44 @@ int previousThreatLevel = -1;
 // SORTIES
 // =====================================================
 
-void applyOutputs() {
+void applyOutputs()
+{
 
-  // Niveau 0
-  if (threatLevel == 0) {
+    // Niveau 0
 
-    digitalWrite(LED_GREEN, HIGH);
-    digitalWrite(LED_ORANGE, LOW);
-    digitalWrite(LED_RED, LOW);
+    if (threatLevel == 0)
+    {
 
-    noTone(PIN_BUZZER);
-  }
+        digitalWrite(LED_GREEN, HIGH);
+        digitalWrite(LED_ORANGE, LOW);
+        digitalWrite(LED_RED, LOW);
 
-  // Niveau 1
-  else if (threatLevel == 1) {
+        noTone(PIN_BUZZER);
+    }
 
-    digitalWrite(LED_GREEN, LOW);
-    digitalWrite(LED_ORANGE, HIGH);
-    digitalWrite(LED_RED, LOW);
+    // Niveau 1
 
-    noTone(PIN_BUZZER);
-  }
+    else if (threatLevel == 1)
+    {
 
-  // Niveau 2
-  else {
+        digitalWrite(LED_GREEN, LOW);
+        digitalWrite(LED_ORANGE, HIGH);
+        digitalWrite(LED_RED, LOW);
 
-    digitalWrite(LED_GREEN, LOW);
-    digitalWrite(LED_ORANGE, LOW);
-    digitalWrite(LED_RED, HIGH);
+        noTone(PIN_BUZZER);
+    }
 
-    tone(PIN_BUZZER, 1000);
-  }
+    // Niveau 2
+
+    else
+    {
+
+        digitalWrite(LED_GREEN, LOW);
+        digitalWrite(LED_ORANGE, LOW);
+        digitalWrite(LED_RED, HIGH);
+
+        tone(PIN_BUZZER, 1000);
+    }
 }
 
 // =====================================================
@@ -135,422 +149,457 @@ void applyOutputs() {
 // =====================================================
 
 int calculateThreatLevel(
-  float temperature,
-  float humidity,
-  int gasValue,
-  int pir,
-  int camera
-) {
+    float temperature,
+    float humidity,
+    int gasValue,
+    int pir,
+    int camera)
+{
 
-  // ===================================================
-  // NIVEAU 2 : CRITIQUE
-  // ===================================================
+    // ===================================================
+    // NIVEAU 2 : CRITIQUE
+    // ===================================================
 
-  // Intrusion confirmée :
-  // PIR + caméra
+    // Intrusion confirmée : PIR + caméra
 
-  if (pir == HIGH && camera == 1) {
-    return 2;
-  }
+    if (pir == HIGH && camera == 1)
+    {
+        return 2;
+    }
 
-  // Gaz critique
+    // Gaz critique absolu
 
-  if (
-    calibrationFinished &&
-    gasValue >= gasBaseline + GAS_DELTA_CRITICAL
-  ) {
-    return 2;
-  }
+    if (gasValue >= GAS_ABSOLUTE_CRITICAL)
+    {
+        return 2;
+    }
 
-  // Température critique
-
-  if (!isnan(temperature)) {
+    // Gaz critique relatif à la baseline
 
     if (
-      temperature < TEMP_CRITICAL_LOW ||
-      temperature > TEMP_CRITICAL_HIGH
-    ) {
-      return 2;
+        calibrationFinished &&
+        gasValue >= gasBaseline + GAS_DELTA_CRITICAL)
+    {
+        return 2;
     }
-  }
 
-  // Humidité critique
+    // Température critique
 
-  if (!isnan(humidity)) {
+    if (!isnan(temperature))
+    {
+
+        if (
+            temperature < TEMP_CRITICAL_LOW ||
+            temperature > TEMP_CRITICAL_HIGH)
+        {
+            return 2;
+        }
+    }
+
+    // Humidité critique
+
+    if (!isnan(humidity))
+    {
+
+        if (
+            humidity < HUM_CRITICAL_LOW ||
+            humidity > HUM_CRITICAL_HIGH)
+        {
+            return 2;
+        }
+    }
+
+    // ===================================================
+    // NIVEAU 1 : ANOMALIE
+    // ===================================================
+
+    // PIR seul
+
+    if (pir == HIGH)
+    {
+        return 1;
+    }
+
+    // Gaz warning absolu
+
+    if (gasValue >= GAS_ABSOLUTE_WARNING)
+    {
+        return 1;
+    }
+
+    // Gaz warning relatif à la baseline
 
     if (
-      humidity < HUM_CRITICAL_LOW ||
-      humidity > HUM_CRITICAL_HIGH
-    ) {
-      return 2;
+        calibrationFinished &&
+        gasValue >= gasBaseline + GAS_DELTA_WARNING)
+    {
+        return 1;
     }
-  }
 
-  // ===================================================
-  // NIVEAU 1 : ANOMALIE
-  // ===================================================
+    // Température hors plage normale
 
-  // PIR seul
+    if (!isnan(temperature))
+    {
 
-  if (pir == HIGH) {
-    return 1;
-  }
-
-  // Gaz anormal mais pas critique
-
-  if (
-    calibrationFinished &&
-    gasValue >= gasBaseline + GAS_DELTA_WARNING
-  ) {
-    return 1;
-  }
-
-  // Température hors plage normale
-
-  if (!isnan(temperature)) {
-
-    if (
-      temperature < TEMP_WARNING_LOW ||
-      temperature > TEMP_WARNING_HIGH
-    ) {
-      return 1;
+        if (
+            temperature < TEMP_WARNING_LOW ||
+            temperature > TEMP_WARNING_HIGH)
+        {
+            return 1;
+        }
     }
-  }
 
-  // Humidité hors plage normale
+    // Humidité hors plage normale
 
-  if (!isnan(humidity)) {
+    if (!isnan(humidity))
+    {
 
-    if (
-      humidity < HUM_WARNING_LOW ||
-      humidity > HUM_WARNING_HIGH
-    ) {
-      return 1;
+        if (
+            humidity < HUM_WARNING_LOW ||
+            humidity > HUM_WARNING_HIGH)
+        {
+            return 1;
+        }
     }
-  }
 
-  // ===================================================
-  // NIVEAU 0
-  // ===================================================
+    // ===================================================
+    // NIVEAU 0
+    // ===================================================
 
-  return 0;
+    return 0;
 }
 
 // =====================================================
 // MESSAGE CHANGEMENT DE NIVEAU
 // =====================================================
 
-void printThreatMessage() {
+void printThreatMessage()
+{
 
-  if (threatLevel == previousThreatLevel) {
-    return;
-  }
+    if (threatLevel == previousThreatLevel)
+    {
+        return;
+    }
 
-  Serial.println();
+    Serial.println();
 
-  if (threatLevel == 0) {
+    if (threatLevel == 0)
+    {
 
-    Serial.println("================================");
-    Serial.println("          SENTINEL-X");
-    Serial.println("--------------------------------");
-    Serial.println("ETAT : NORMAL");
-    Serial.println("NIVEAU : 0");
-    Serial.println("LED : VERTE");
-    Serial.println("BUZZER : OFF");
-    Serial.println("================================");
-  }
+        Serial.println("================================");
+        Serial.println("          SENTINEL-X");
+        Serial.println("--------------------------------");
+        Serial.println("ETAT : NORMAL");
+        Serial.println("NIVEAU : 0");
+        Serial.println("LED : VERTE");
+        Serial.println("BUZZER : OFF");
+        Serial.println("================================");
+    }
 
-  else if (threatLevel == 1) {
+    else if (threatLevel == 1)
+    {
 
-    Serial.println("================================");
-    Serial.println("          SENTINEL-X");
-    Serial.println("--------------------------------");
-    Serial.println("ETAT : ANOMALIE");
-    Serial.println("NIVEAU : 1");
-    Serial.println("LED : ORANGE");
-    Serial.println("BUZZER : OFF");
-    Serial.println("================================");
-  }
+        Serial.println("================================");
+        Serial.println("          SENTINEL-X");
+        Serial.println("--------------------------------");
+        Serial.println("ETAT : ANOMALIE");
+        Serial.println("NIVEAU : 1");
+        Serial.println("LED : ORANGE");
+        Serial.println("BUZZER : OFF");
+        Serial.println("================================");
+    }
 
-  else {
+    else
+    {
 
-    Serial.println("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
-    Serial.println("          SENTINEL-X");
-    Serial.println("--------------------------------");
-    Serial.println("ETAT : ALERTE CRITIQUE");
-    Serial.println("NIVEAU : 2");
-    Serial.println("LED : ROUGE");
-    Serial.println("BUZZER : ON");
-    Serial.println("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
-  }
+        Serial.println("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+        Serial.println("          SENTINEL-X");
+        Serial.println("--------------------------------");
+        Serial.println("ETAT : ALERTE CRITIQUE");
+        Serial.println("NIVEAU : 2");
+        Serial.println("LED : ROUGE");
+        Serial.println("BUZZER : ON");
+        Serial.println("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+    }
 
-  Serial.println();
+    Serial.println();
 
-  previousThreatLevel = threatLevel;
+    previousThreatLevel = threatLevel;
 }
 
 // =====================================================
 // SETUP
 // =====================================================
 
-void setup() {
+void setup()
+{
 
-  Serial.begin(115200);
+    Serial.begin(115200);
 
-  delay(500);
+    delay(500);
 
-  // Entrées
+    // Entrées
 
-  pinMode(PIN_PIR, INPUT);
+    pinMode(PIN_PIR, INPUT);
+    pinMode(PIN_CAM, INPUT_PULLUP);
+    pinMode(PIN_MQ2, INPUT);
 
-  pinMode(PIN_CAM, INPUT_PULLUP);
+    // Sorties
 
-  pinMode(PIN_MQ2, INPUT);
+    pinMode(PIN_BUZZER, OUTPUT);
 
-  // Sorties
+    pinMode(LED_GREEN, OUTPUT);
+    pinMode(LED_ORANGE, OUTPUT);
+    pinMode(LED_RED, OUTPUT);
 
-  pinMode(PIN_BUZZER, OUTPUT);
+    // DHT
 
-  pinMode(LED_GREEN, OUTPUT);
-  pinMode(LED_ORANGE, OUTPUT);
-  pinMode(LED_RED, OUTPUT);
+    dht.begin();
 
-  // DHT
+    // Etat initial
 
-  dht.begin();
+    digitalWrite(LED_GREEN, HIGH);
+    digitalWrite(LED_ORANGE, LOW);
+    digitalWrite(LED_RED, LOW);
 
-  // Etat initial
+    noTone(PIN_BUZZER);
 
-  digitalWrite(LED_GREEN, HIGH);
+    startTime = millis();
 
-  digitalWrite(LED_ORANGE, LOW);
+    Serial.println();
+    Serial.println("================================");
+    Serial.println("          SENTINEL-X");
+    Serial.println("================================");
 
-  digitalWrite(LED_RED, LOW);
+    Serial.println();
 
-  noTone(PIN_BUZZER);
+    Serial.println("Demarrage du systeme...");
+    Serial.println("Calibration du capteur MQ-2...");
+    Serial.println("Patientez 5 secondes.");
 
-  startTime = millis();
-
-  Serial.println();
-  Serial.println("================================");
-  Serial.println("          SENTINEL-X");
-  Serial.println("================================");
-
-  Serial.println();
-
-  Serial.println("Demarrage du systeme...");
-  Serial.println("Calibration du capteur MQ-2...");
-  Serial.println("Patientez 5 secondes.");
-
-  Serial.println();
+    Serial.println();
 }
 
 // =====================================================
 // LOOP
 // =====================================================
 
-void loop() {
+void loop()
+{
 
-  // ===================================================
-  // CALIBRATION GAZ
-  // ===================================================
+    // ===================================================
+    // CALIBRATION GAZ
+    // ===================================================
 
-  if (!calibrationFinished) {
+    if (!calibrationFinished)
+    {
 
-    int gasValue = analogRead(PIN_MQ2);
+        int gasValue = analogRead(PIN_MQ2);
 
-    gasCalibrationSum += gasValue;
+        gasCalibrationSum += gasValue;
 
-    gasCalibrationCount++;
+        gasCalibrationCount++;
 
-    if (millis() - startTime < CALIBRATION_TIME) {
+        if (millis() - startTime < CALIBRATION_TIME)
+        {
 
-      delay(100);
+            delay(100);
 
-      return;
+            return;
+        }
+
+        if (gasCalibrationCount > 0)
+        {
+
+            gasBaseline =
+                gasCalibrationSum /
+                gasCalibrationCount;
+        }
+
+        calibrationFinished = true;
+
+        Serial.println();
+        Serial.println("================================");
+        Serial.println("CALIBRATION MQ-2 TERMINEE");
+        Serial.println("================================");
+
+        Serial.print("Gaz baseline           : ");
+        Serial.println(gasBaseline);
+
+        Serial.print("Warning relatif        : ");
+        Serial.println(
+            gasBaseline + GAS_DELTA_WARNING);
+
+        Serial.print("Critique relatif       : ");
+        Serial.println(
+            gasBaseline + GAS_DELTA_CRITICAL);
+
+        Serial.print("Warning absolu         : ");
+        Serial.println(GAS_ABSOLUTE_WARNING);
+
+        Serial.print("Critique absolu        : ");
+        Serial.println(GAS_ABSOLUTE_CRITICAL);
+
+        Serial.println();
+        Serial.println("Sentinel-X operationnel.");
+        Serial.println();
+
+        previousThreatLevel = -1;
+
+        return;
     }
 
-    if (gasCalibrationCount > 0) {
+    // ===================================================
+    // ATTENDRE 1 SECONDE
+    // ===================================================
 
-      gasBaseline =
-        gasCalibrationSum /
-        gasCalibrationCount;
+    if (millis() - lastRead < READ_INTERVAL)
+    {
+        return;
     }
 
-    calibrationFinished = true;
+    lastRead = millis();
 
-    Serial.println();
-    Serial.println("================================");
-    Serial.println("CALIBRATION MQ-2 TERMINEE");
-    Serial.println("================================");
+    // ===================================================
+    // LECTURE CAPTEURS
+    // ===================================================
 
-    Serial.print("Gaz baseline         : ");
+    float temperature =
+        dht.readTemperature();
+
+    float humidity =
+        dht.readHumidity();
+
+    int gasValue =
+        analogRead(PIN_MQ2);
+
+    int pir =
+        digitalRead(PIN_PIR);
+
+    int camera =
+        digitalRead(PIN_CAM) == LOW;
+
+    // ===================================================
+    // CALCUL MENACE
+    // ===================================================
+
+    threatLevel =
+        calculateThreatLevel(
+            temperature,
+            humidity,
+            gasValue,
+            pir,
+            camera);
+
+    // ===================================================
+    // LEDS + BUZZER
+    // ===================================================
+
+    applyOutputs();
+
+    // ===================================================
+    // MESSAGE DE CHANGEMENT
+    // ===================================================
+
+    printThreatMessage();
+
+    // ===================================================
+    // AFFICHAGE CAPTEURS
+    // ===================================================
+
+    Serial.println("------- CAPTEURS -------");
+
+    // Température
+
+    Serial.print("Temperature : ");
+
+    if (isnan(temperature))
+    {
+
+        Serial.println("ERREUR");
+    }
+    else
+    {
+
+        Serial.print(temperature, 1);
+        Serial.println(" C");
+    }
+
+    // Humidité
+
+    Serial.print("Humidite    : ");
+
+    if (isnan(humidity))
+    {
+
+        Serial.println("ERREUR");
+    }
+    else
+    {
+
+        Serial.print(humidity, 1);
+        Serial.println(" %");
+    }
+
+    // Gaz
+
+    Serial.print("Gaz         : ");
+    Serial.println(gasValue);
+
+    Serial.print("Gaz baseline: ");
     Serial.println(gasBaseline);
 
-    Serial.print("Seuil warning gaz    : ");
-    Serial.println(
-      gasBaseline + GAS_DELTA_WARNING
-    );
+    // PIR
 
-    Serial.print("Seuil critique gaz   : ");
-    Serial.println(
-      gasBaseline + GAS_DELTA_CRITICAL
-    );
+    Serial.print("PIR         : ");
 
+    if (pir == HIGH)
+    {
+
+        Serial.println("PRESENCE");
+    }
+    else
+    {
+
+        Serial.println("Aucune presence");
+    }
+
+    // Caméra
+
+    Serial.print("Camera      : ");
+
+    if (camera == 1)
+    {
+
+        Serial.println("PERSONNE DETECTEE");
+    }
+    else
+    {
+
+        Serial.println("Aucune detection");
+    }
+
+    // Niveau
+
+    Serial.print("Niveau      : ");
+    Serial.println(threatLevel);
+
+    // ===================================================
+    // JSON
+    // ===================================================
+
+    Serial.print("JSON : ");
+
+    Serial.printf(
+        "{\"temp\":%.1f,\"hum\":%.1f,\"gaz\":%d,\"gaz_base\":%d,\"pir\":%d,\"cam\":%d,\"level\":%d}\n",
+        temperature,
+        humidity,
+        gasValue,
+        gasBaseline,
+        pir,
+        camera,
+        threatLevel);
+
+    Serial.println("-------------------------");
     Serial.println();
-
-    Serial.println("Sentinel-X operationnel.");
-    Serial.println();
-
-    previousThreatLevel = -1;
-
-    return;
-  }
-
-  // ===================================================
-  // ATTENDRE 1 SECONDE
-  // ===================================================
-
-  if (millis() - lastRead < READ_INTERVAL) {
-    return;
-  }
-
-  lastRead = millis();
-
-  // ===================================================
-  // LECTURE CAPTEURS
-  // ===================================================
-
-  float temperature =
-    dht.readTemperature();
-
-  float humidity =
-    dht.readHumidity();
-
-  int gasValue =
-    analogRead(PIN_MQ2);
-
-  int pir =
-    digitalRead(PIN_PIR);
-
-  int camera =
-    digitalRead(PIN_CAM) == LOW;
-
-  // ===================================================
-  // CALCUL MENACE
-  // ===================================================
-
-  threatLevel =
-    calculateThreatLevel(
-      temperature,
-      humidity,
-      gasValue,
-      pir,
-      camera
-    );
-
-  // ===================================================
-  // LEDS + BUZZER
-  // ===================================================
-
-  applyOutputs();
-
-  // ===================================================
-  // MESSAGE DE CHANGEMENT
-  // ===================================================
-
-  printThreatMessage();
-
-  // ===================================================
-  // AFFICHAGE CAPTEURS
-  // ===================================================
-
-  Serial.println("------- CAPTEURS -------");
-
-  // Température
-
-  Serial.print("Temperature : ");
-
-  if (isnan(temperature)) {
-
-    Serial.println("ERREUR");
-
-  } else {
-
-    Serial.print(temperature, 1);
-    Serial.println(" C");
-  }
-
-  // Humidité
-
-  Serial.print("Humidite    : ");
-
-  if (isnan(humidity)) {
-
-    Serial.println("ERREUR");
-
-  } else {
-
-    Serial.print(humidity, 1);
-    Serial.println(" %");
-  }
-
-  // Gaz
-
-  Serial.print("Gaz         : ");
-  Serial.println(gasValue);
-
-  Serial.print("Gaz baseline: ");
-  Serial.println(gasBaseline);
-
-  // PIR
-
-  Serial.print("PIR         : ");
-
-  if (pir == HIGH) {
-
-    Serial.println("PRESENCE");
-
-  } else {
-
-    Serial.println("Aucune presence");
-  }
-
-  // Caméra
-
-  Serial.print("Camera      : ");
-
-  if (camera == 1) {
-
-    Serial.println("PERSONNE DETECTEE");
-
-  } else {
-
-    Serial.println("Aucune detection");
-  }
-
-  // Niveau
-
-  Serial.print("Niveau      : ");
-  Serial.println(threatLevel);
-
-  // ===================================================
-  // JSON
-  // ===================================================
-
-  Serial.print("JSON : ");
-
-  Serial.printf(
-    "{\"temp\":%.1f,\"hum\":%.1f,\"gaz\":%d,\"gaz_base\":%d,\"pir\":%d,\"cam\":%d,\"level\":%d}\n",
-    temperature,
-    humidity,
-    gasValue,
-    gasBaseline,
-    pir,
-    camera,
-    threatLevel
-  );
-
-  Serial.println("-------------------------");
-  Serial.println();
 }
