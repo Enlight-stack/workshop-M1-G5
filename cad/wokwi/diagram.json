@@ -1,0 +1,267 @@
+{
+    "version": 1,
+    "author": "Sentinel-X - Groupe 5",
+    "editor": "wokwi",
+    "parts": [
+        {
+            "type": "board-esp32-devkit-c-v4",
+            "id": "esp",
+            "top": 0,
+            "left": 0,
+            "attrs": {}
+        },
+        {
+            "type": "wokwi-dht22",
+            "id": "dht1",
+            "top": -120,
+            "left": 190,
+            "attrs": {
+                "temperature": "24",
+                "humidity": "40"
+            }
+        },
+        {
+            "type": "wokwi-gas-sensor",
+            "id": "gas1",
+            "top": -170,
+            "left": -230,
+            "attrs": {
+                "ppm": "400",
+                "threshold": "4.4"
+            }
+        },
+        {
+            "type": "wokwi-pir-motion-sensor",
+            "id": "pir1",
+            "top": -170,
+            "left": -70,
+            "attrs": {}
+        },
+        {
+            "type": "wokwi-pushbutton",
+            "id": "btnCam",
+            "top": 130,
+            "left": -210,
+            "attrs": {
+                "color": "blue",
+                "label": "CAM"
+            }
+        },
+        {
+            "type": "wokwi-buzzer",
+            "id": "bz1",
+            "top": 250,
+            "left": -170,
+            "attrs": {
+                "volume": "0.1"
+            }
+        },
+        {
+            "type": "wokwi-led",
+            "id": "ledG",
+            "top": 340,
+            "left": -70,
+            "attrs": {
+                "color": "green",
+                "label": "OK"
+            }
+        },
+        {
+            "type": "wokwi-led",
+            "id": "ledO",
+            "top": 340,
+            "left": 0,
+            "attrs": {
+                "color": "orange",
+                "label": "WARNING"
+            }
+        },
+        {
+            "type": "wokwi-led",
+            "id": "ledR",
+            "top": 340,
+            "left": 70,
+            "attrs": {
+                "color": "red",
+                "label": "CRITICAL"
+            }
+        },
+        {
+            "type": "wokwi-resistor",
+            "id": "rG",
+            "top": 290,
+            "left": -85,
+            "rotate": 90,
+            "attrs": {
+                "value": "220"
+            }
+        },
+        {
+            "type": "wokwi-resistor",
+            "id": "rO",
+            "top": 290,
+            "left": -15,
+            "rotate": 90,
+            "attrs": {
+                "value": "220"
+            }
+        },
+        {
+            "type": "wokwi-resistor",
+            "id": "rR",
+            "top": 290,
+            "left": 55,
+            "rotate": 90,
+            "attrs": {
+                "value": "220"
+            }
+        }
+    ],
+    "connections": [
+        [
+            "esp:TX",
+            "$serialMonitor:RX",
+            "",
+            []
+        ],
+        [
+            "esp:RX",
+            "$serialMonitor:TX",
+            "",
+            []
+        ],
+        [
+            "dht1:SDA",
+            "esp:15",
+            "green",
+            []
+        ],
+        [
+            "dht1:VCC",
+            "esp:3V3",
+            "red",
+            []
+        ],
+        [
+            "dht1:GND",
+            "esp:GND.2",
+            "black",
+            []
+        ],
+        [
+            "pir1:OUT",
+            "esp:13",
+            "green",
+            []
+        ],
+        [
+            "pir1:VCC",
+            "esp:5V",
+            "red",
+            []
+        ],
+        [
+            "pir1:GND",
+            "esp:GND.1",
+            "black",
+            []
+        ],
+        [
+            "gas1:AO",
+            "esp:34",
+            "orange",
+            []
+        ],
+        [
+            "gas1:VCC",
+            "esp:5V",
+            "red",
+            []
+        ],
+        [
+            "gas1:GND",
+            "esp:GND.2",
+            "black",
+            []
+        ],
+        [
+            "btnCam:1.l",
+            "esp:14",
+            "blue",
+            []
+        ],
+        [
+            "btnCam:2.l",
+            "esp:GND.1",
+            "black",
+            []
+        ],
+        [
+            "bz1:1",
+            "esp:12",
+            "purple",
+            []
+        ],
+        [
+            "bz1:2",
+            "esp:GND.1",
+            "black",
+            []
+        ],
+        [
+            "esp:25",
+            "rG:1",
+            "green",
+            []
+        ],
+        [
+            "rG:2",
+            "ledG:A",
+            "green",
+            []
+        ],
+        [
+            "ledG:C",
+            "esp:GND.1",
+            "black",
+            []
+        ],
+        [
+            "esp:26",
+            "rO:1",
+            "orange",
+            []
+        ],
+        [
+            "rO:2",
+            "ledO:A",
+            "orange",
+            []
+        ],
+        [
+            "ledO:C",
+            "esp:GND.1",
+            "black",
+            []
+        ],
+        [
+            "esp:27",
+            "rR:1",
+            "red",
+            []
+        ],
+        [
+            "rR:2",
+            "ledR:A",
+            "red",
+            []
+        ],
+        [
+            "ledR:C",
+            "esp:GND.1",
+            "black",
+            []
+        ]
+    ],
+    "dependencies": {}
+}
