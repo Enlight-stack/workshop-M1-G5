@@ -24,19 +24,32 @@ CHECK_INTERVAL = 1
 
 
 # =====================================================
-# ATTENTE DU MODELE
+# VERIFICATIONS
+# =====================================================
+
+if not MONGO_URI:
+    raise RuntimeError(
+        "MONGO_URI est manquant."
+    )
+
+
+# =====================================================
+# DEMARRAGE
 # =====================================================
 
 print("======================================")
 print(" SENTINEL-X - DETECTION IA")
 print("======================================")
-
 print()
+
+
+# =====================================================
+# ATTENTE DU MODELE
+# =====================================================
 
 while not os.path.exists(
     MODEL_PATH
 ):
-
     print(
         "[AI] Modele introuvable."
     )
@@ -63,7 +76,7 @@ print(
 
 
 # =====================================================
-# MONGODB
+# CONNEXION MONGODB
 # =====================================================
 
 client = MongoClient(
@@ -71,10 +84,23 @@ client = MongoClient(
     serverSelectionTimeoutMS=5000
 )
 
+client.admin.command(
+    "ping"
+)
+
 db = client["sentinel"]
 
 telemetry = db["telemetry"]
 ai_results = db["ai_results"]
+
+
+print(
+    "[AI] MongoDB connecte."
+)
+
+print(
+    "[AI] Surveillance active."
+)
 
 
 # =====================================================
@@ -90,59 +116,84 @@ last_processed_id = None
 
 def analyze(doc):
 
-    temperature = float(
-        doc.get(
-            "temperature",
-            0
+    try:
+        temperature = float(
+            doc["temperature"]
         )
-    )
 
-    humidity = float(
-        doc.get(
-            "humidity",
-            0
+        humidity = float(
+            doc["humidity"]
         )
-    )
 
-    gas = float(
-        doc.get(
-            "gas",
-            0
+        gas = float(
+            doc["gas"]
         )
-    )
 
-    gas_baseline = float(
-        doc.get(
-            "gas_baseline",
-            0
+        gas_baseline = float(
+            doc["gas_baseline"]
         )
-    )
+
+        pir = int(
+            bool(
+                doc.get(
+                    "pir",
+                    False
+                )
+            )
+        )
+
+        camera = int(
+            bool(
+                doc.get(
+                    "camera",
+                    False
+                )
+            )
+        )
+
+    except (
+        KeyError,
+        TypeError,
+        ValueError
+    ) as error:
+
+        print(
+            "[AI] Telemetrie invalide :",
+            error
+        )
+
+        return
+
+
+    if gas_baseline <= 0:
+
+        print(
+            "[AI] Baseline gaz invalide."
+        )
+
+        return
+
+
+    # =================================================
+    # FEATURES NORMALISEES PAR RAPPORT A LA BASELINE
+    # =================================================
 
     gas_delta = (
         gas - gas_baseline
     )
 
-    pir = int(
-        doc.get(
-            "pir",
-            False
-        )
+    gas_ratio = (
+        gas / gas_baseline
     )
 
-    camera = int(
-        doc.get(
-            "camera",
-            False
-        )
-    )
 
     X = np.array(
         [
             [
                 temperature,
                 humidity,
-                gas,
                 gas_delta,
+                gas_ratio,
                 pir,
                 camera
             ]
@@ -151,29 +202,43 @@ def analyze(doc):
     )
 
 
+    # =================================================
+    # PREDICTION
+    # =================================================
+
     prediction = int(
-        model.predict(X)[0]
+        model.predict(
+            X
+        )[0]
     )
 
     decision_score = float(
-        model.decision_function(X)[0]
+        model.decision_function(
+            X
+        )[0]
     )
 
 
     # Isolation Forest :
     #
-    #  1  = normal
-    # -1  = anomalie
+    #  1 = normal
+    # -1 = anomalie
 
     is_anomaly = (
         prediction == -1
     )
 
 
+    # =================================================
+    # RESULTAT
+    # =================================================
+
     result = {
 
         "telemetry_id":
-            str(doc["_id"]),
+            str(
+                doc["_id"]
+            ),
 
         "device_id":
             doc.get(
@@ -189,15 +254,28 @@ def analyze(doc):
         "gas":
             gas,
 
+        "gas_baseline":
+            gas_baseline,
+
         "gas_delta":
             gas_delta,
 
+        "gas_ratio":
+            gas_ratio,
+
         "pir":
-            bool(pir),
+            bool(
+                pir
+            ),
 
         "camera":
-            bool(camera),
+            bool(
+                camera
+            ),
 
+        # Niveau calcule par les regles ESP32.
+        # Il est conserve uniquement pour comparaison,
+        # PAS utilise comme entree IA.
         "rule_level":
             doc.get(
                 "level"
@@ -216,15 +294,78 @@ def analyze(doc):
     }
 
 
+    # =================================================
+    # STOCKAGE DU RESULTAT IA
+    # =================================================
+
     ai_results.insert_one(
         result
     )
 
 
+    # =================================================
+    # LOGS
+    # =================================================
+
     print()
     print(
         "[AI] Telemetry :",
-        str(doc["_id"])
+        str(
+            doc["_id"]
+        )
+    )
+
+    print(
+        "[AI] Temp :",
+        temperature
+    )
+
+    print(
+        "[AI] Humidite :",
+        humidity
+    )
+
+    print(
+        "[AI] Gaz :",
+        gas
+    )
+
+    print(
+        "[AI] Baseline gaz :",
+        gas_baseline
+    )
+
+    print(
+        "[AI] Delta gaz :",
+        round(
+            gas_delta,
+            2
+        )
+    )
+
+    print(
+        "[AI] Ratio gaz :",
+        round(
+            gas_ratio,
+            4
+        )
+    )
+
+    print(
+        "[AI] PIR :",
+        pir
+    )
+
+    print(
+        "[AI] Camera :",
+        camera
+    )
+
+    print(
+        "[AI] Niveau regles :",
+        doc.get(
+            "level"
+        )
     )
 
     print(
@@ -234,6 +375,7 @@ def analyze(doc):
             4
         )
     )
+
 
     if is_anomaly:
 
@@ -249,12 +391,8 @@ def analyze(doc):
 
 
 # =====================================================
-# BOUCLE
+# BOUCLE TEMPS REEL
 # =====================================================
-
-print(
-    "[AI] Surveillance active."
-)
 
 while True:
 
@@ -268,6 +406,7 @@ while True:
                 )
             ]
         )
+
 
         if latest is None:
 
@@ -283,7 +422,10 @@ while True:
         )
 
 
-        if current_id != last_processed_id:
+        if (
+            current_id
+            != last_processed_id
+        ):
 
             analyze(
                 latest
