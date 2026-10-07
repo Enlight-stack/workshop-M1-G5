@@ -2,69 +2,63 @@ services:
 
   mosquitto:
     image: eclipse-mosquitto:2
-
     ports:
       - "1883:1883"
-
     volumes:
       - ./infra/mosquitto.conf:/mosquitto/config/mosquitto.conf
 
-
   mongo:
     image: mongo:7
-
     environment:
       MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER}
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD}
-
     volumes:
       - mongodata:/data/db
 
-
   api:
     build: ./api
-
     ports:
       - "5000:5000"
-
     environment:
       MONGO_URI: mongodb://${MONGO_USER}:${MONGO_PASSWORD}@mongo:27017/?authSource=admin
       API_KEY: ${API_KEY}
-
     depends_on:
       - mongo
       - mosquitto
 
-
   mqtt-bridge:
     build: ./mqtt_bridge
-
     environment:
       MQTT_HOST: test.mosquitto.org
       MQTT_PORT: 1883
       MQTT_TOPIC: sentinel-x-g5-2026/sensors
       MQTT_CLIENT_ID: sentinel-x-backend-bridge
-
       API_URL: http://api:5000/api/v1/telemetry
       API_KEY: ${API_KEY}
-
     depends_on:
       - api
-
     restart: unless-stopped
+
   ai:
     build: ./ai
-
     environment:
       MONGO_URI: mongodb://${MONGO_USER}:${MONGO_PASSWORD}@mongo:27017/?authSource=admin
       MODEL_PATH: /app/model/isolation_forest.joblib
-
     volumes:
       - ./ai/model:/app/model
-
     depends_on:
       - mongo
+    restart: unless-stopped
 
+  dashboard:
+    build: ./dashboard
+    ports:
+      - "3000:3000"
+    environment:
+      API_BASE_URL: http://api:5000
+      API_KEY: ${API_KEY}
+    depends_on:
+      - api
     restart: unless-stopped
 
 volumes:
