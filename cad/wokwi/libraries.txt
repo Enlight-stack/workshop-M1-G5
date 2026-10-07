@@ -1,8 +1,9 @@
 # Wokwi Library List
 # See https://docs.wokwi.com/guides/libraries
 
-DHT sensor library for ESPx
+# Automatically added based on includes:
 DHT sensor library
-Adafruit SSD1306
-Adafruit GFX Library
+
+DHT sensor library
 Adafruit Unified Sensor
+PubSubClient

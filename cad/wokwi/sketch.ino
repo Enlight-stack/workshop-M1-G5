@@ -1,7 +1,9 @@
 #include <DHT.h>
+#include <WiFi.h>
+#include <PubSubClient.h>
 
 // =====================================================
-// SENTINEL-X - VERSION FINALE WOKWI
+// SENTINEL-X - WOKWI + MQTT PUBLIC
 // =====================================================
 
 // ===============================
@@ -24,19 +26,34 @@
 // ===============================
 
 #define DHTTYPE DHT22
-
 DHT dht(PIN_DHT, DHTTYPE);
+
+// ===============================
+// WIFI WOKWI
+// ===============================
+
+const char *WIFI_SSID = "Wokwi-GUEST";
+const char *WIFI_PASSWORD = "";
+
+// ===============================
+// MQTT PUBLIC
+// ===============================
+
+const char *MQTT_SERVER = "test.mosquitto.org";
+const int MQTT_PORT = 1883;
+
+const char *MQTT_CLIENT_ID = "sentinel-x-g5-esp32-001";
+const char *MQTT_TOPIC = "sentinel-x-g5-2026/sensors";
+
+WiFiClient wifiClient;
+PubSubClient mqttClient(wifiClient);
 
 // ===============================
 // SEUILS TEMPERATURE
 // ===============================
 
-// Normal : 18°C à 28°C
-
 const float TEMP_WARNING_LOW = 18.0;
 const float TEMP_WARNING_HIGH = 28.0;
-
-// Critique : < 10°C ou > 40°C
 
 const float TEMP_CRITICAL_LOW = 10.0;
 const float TEMP_CRITICAL_HIGH = 40.0;
@@ -45,12 +62,8 @@ const float TEMP_CRITICAL_HIGH = 40.0;
 // SEUILS HUMIDITE
 // ===============================
 
-// Normal : 30% à 70%
-
 const float HUM_WARNING_LOW = 30.0;
 const float HUM_WARNING_HIGH = 70.0;
-
-// Critique : < 20% ou > 85%
 
 const float HUM_CRITICAL_LOW = 20.0;
 const float HUM_CRITICAL_HIGH = 85.0;
@@ -59,14 +72,12 @@ const float HUM_CRITICAL_HIGH = 85.0;
 // SEUILS GAZ
 // ===============================
 
-// Variation par rapport à la baseline
+// Ecart par rapport à la baseline
 
 const int GAS_DELTA_WARNING = 400;
 const int GAS_DELTA_CRITICAL = 800;
 
-// Seuils absolus de sécurité
-// Même si la baseline est déjà élevée,
-// ces valeurs déclenchent une alerte.
+// Seuils absolus
 
 const int GAS_ABSOLUTE_WARNING = 3000;
 const int GAS_ABSOLUTE_CRITICAL = 3500;
@@ -75,12 +86,7 @@ const int GAS_ABSOLUTE_CRITICAL = 3500;
 // TEMPS
 // ===============================
 
-// Calibration gaz pendant 5 secondes
-
 const unsigned long CALIBRATION_TIME = 5000;
-
-// Lecture chaque seconde
-
 const unsigned long READ_INTERVAL = 1000;
 
 // ===============================
@@ -101,13 +107,89 @@ int threatLevel = 0;
 int previousThreatLevel = -1;
 
 // =====================================================
+// WIFI
+// =====================================================
+
+void connectWiFi()
+{
+
+    if (WiFi.status() == WL_CONNECTED)
+    {
+        return;
+    }
+
+    Serial.print("Connexion WiFi");
+
+    WiFi.mode(WIFI_STA);
+
+    WiFi.begin(
+        WIFI_SSID,
+        WIFI_PASSWORD,
+        6);
+
+    while (WiFi.status() != WL_CONNECTED)
+    {
+
+        delay(250);
+        Serial.print(".");
+    }
+
+    Serial.println();
+    Serial.println("WiFi connecte.");
+
+    Serial.print("Adresse IP ESP32 : ");
+    Serial.println(WiFi.localIP());
+
+    Serial.println();
+}
+
+// =====================================================
+// MQTT
+// =====================================================
+
+void connectMQTT()
+{
+
+    while (!mqttClient.connected())
+    {
+
+        Serial.print("Connexion MQTT... ");
+
+        if (mqttClient.connect(MQTT_CLIENT_ID))
+        {
+
+            Serial.println("OK");
+
+            Serial.print("Broker : ");
+            Serial.print(MQTT_SERVER);
+            Serial.print(":");
+            Serial.println(MQTT_PORT);
+
+            Serial.print("Topic : ");
+            Serial.println(MQTT_TOPIC);
+
+            Serial.println();
+        }
+        else
+        {
+
+            Serial.print("ECHEC - code : ");
+            Serial.println(mqttClient.state());
+
+            Serial.println(
+                "Nouvelle tentative dans 2 secondes...");
+
+            delay(2000);
+        }
+    }
+}
+
+// =====================================================
 // SORTIES
 // =====================================================
 
 void applyOutputs()
 {
-
-    // Niveau 0
 
     if (threatLevel == 0)
     {
@@ -119,8 +201,6 @@ void applyOutputs()
         noTone(PIN_BUZZER);
     }
 
-    // Niveau 1
-
     else if (threatLevel == 1)
     {
 
@@ -130,8 +210,6 @@ void applyOutputs()
 
         noTone(PIN_BUZZER);
     }
-
-    // Niveau 2
 
     else
     {
@@ -145,7 +223,7 @@ void applyOutputs()
 }
 
 // =====================================================
-// CALCUL DU NIVEAU DE MENACE
+// CALCUL NIVEAU DE MENACE
 // =====================================================
 
 int calculateThreatLevel(
@@ -156,9 +234,9 @@ int calculateThreatLevel(
     int camera)
 {
 
-    // ===================================================
+    // ==========================================
     // NIVEAU 2 : CRITIQUE
-    // ===================================================
+    // ==========================================
 
     // Intrusion confirmée : PIR + caméra
 
@@ -174,7 +252,7 @@ int calculateThreatLevel(
         return 2;
     }
 
-    // Gaz critique relatif à la baseline
+    // Gaz critique relatif
 
     if (
         calibrationFinished &&
@@ -209,9 +287,9 @@ int calculateThreatLevel(
         }
     }
 
-    // ===================================================
-    // NIVEAU 1 : ANOMALIE
-    // ===================================================
+    // ==========================================
+    // NIVEAU 1 : WARNING
+    // ==========================================
 
     // PIR seul
 
@@ -227,7 +305,7 @@ int calculateThreatLevel(
         return 1;
     }
 
-    // Gaz warning relatif à la baseline
+    // Gaz warning relatif
 
     if (
         calibrationFinished &&
@@ -262,9 +340,9 @@ int calculateThreatLevel(
         }
     }
 
-    // ===================================================
-    // NIVEAU 0
-    // ===================================================
+    // ==========================================
+    // NIVEAU 0 : NORMAL
+    // ==========================================
 
     return 0;
 }
@@ -286,45 +364,89 @@ void printThreatMessage()
     if (threatLevel == 0)
     {
 
-        Serial.println("================================");
+        Serial.println("==============================");
         Serial.println("          SENTINEL-X");
-        Serial.println("--------------------------------");
         Serial.println("ETAT : NORMAL");
         Serial.println("NIVEAU : 0");
-        Serial.println("LED : VERTE");
-        Serial.println("BUZZER : OFF");
-        Serial.println("================================");
+        Serial.println("LED VERTE");
+        Serial.println("BUZZER OFF");
+        Serial.println("==============================");
     }
 
     else if (threatLevel == 1)
     {
 
-        Serial.println("================================");
+        Serial.println("==============================");
         Serial.println("          SENTINEL-X");
-        Serial.println("--------------------------------");
         Serial.println("ETAT : ANOMALIE");
         Serial.println("NIVEAU : 1");
-        Serial.println("LED : ORANGE");
-        Serial.println("BUZZER : OFF");
-        Serial.println("================================");
+        Serial.println("LED ORANGE");
+        Serial.println("BUZZER OFF");
+        Serial.println("==============================");
     }
 
     else
     {
 
-        Serial.println("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+        Serial.println("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
         Serial.println("          SENTINEL-X");
-        Serial.println("--------------------------------");
         Serial.println("ETAT : ALERTE CRITIQUE");
         Serial.println("NIVEAU : 2");
-        Serial.println("LED : ROUGE");
-        Serial.println("BUZZER : ON");
-        Serial.println("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+        Serial.println("LED ROUGE");
+        Serial.println("BUZZER ON");
+        Serial.println("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
     }
 
     Serial.println();
 
     previousThreatLevel = threatLevel;
+}
+
+// =====================================================
+// PUBLICATION MQTT
+// =====================================================
+
+void publishSensorData(
+    float temperature,
+    float humidity,
+    int gasValue,
+    int pir,
+    int camera)
+{
+
+    char payload[256];
+
+    snprintf(
+        payload,
+        sizeof(payload),
+        "{\"device_id\":\"esp32-wokwi\",\"temp\":%.1f,\"hum\":%.1f,\"gaz\":%d,\"gaz_base\":%d,\"pir\":%d,\"cam\":%d,\"level\":%d}",
+        temperature,
+        humidity,
+        gasValue,
+        gasBaseline,
+        pir,
+        camera,
+        threatLevel);
+
+    bool published =
+        mqttClient.publish(
+            MQTT_TOPIC,
+            payload);
+
+    if (published)
+    {
+
+        Serial.print("MQTT PUB -> ");
+        Serial.print(MQTT_TOPIC);
+        Serial.print(" : ");
+        Serial.println(payload);
+    }
+    else
+    {
+
+        Serial.println(
+            "ERREUR : publication MQTT impossible");
+    }
 }
 
 // =====================================================
@@ -364,18 +486,39 @@ void setup()
 
     noTone(PIN_BUZZER);
 
+    Serial.println();
+    Serial.println("==============================");
+    Serial.println("          SENTINEL-X");
+    Serial.println("==============================");
+    Serial.println();
+
+    // ===============================
+    // WIFI
+    // ===============================
+
+    connectWiFi();
+
+    // ===============================
+    // MQTT
+    // ===============================
+
+    mqttClient.setServer(
+        MQTT_SERVER,
+        MQTT_PORT);
+
+    connectMQTT();
+
+    // ===============================
+    // CALIBRATION
+    // ===============================
+
     startTime = millis();
 
-    Serial.println();
-    Serial.println("================================");
-    Serial.println("          SENTINEL-X");
-    Serial.println("================================");
+    Serial.println(
+        "Calibration du capteur MQ-2...");
 
-    Serial.println();
-
-    Serial.println("Demarrage du systeme...");
-    Serial.println("Calibration du capteur MQ-2...");
-    Serial.println("Patientez 5 secondes.");
+    Serial.println(
+        "Patientez 5 secondes.");
 
     Serial.println();
 }
@@ -388,23 +531,40 @@ void loop()
 {
 
     // ===================================================
-    // CALIBRATION GAZ
+    // MAINTIEN WIFI / MQTT
+    // ===================================================
+
+    if (WiFi.status() != WL_CONNECTED)
+    {
+        connectWiFi();
+    }
+
+    if (!mqttClient.connected())
+    {
+        connectMQTT();
+    }
+
+    mqttClient.loop();
+
+    // ===================================================
+    // CALIBRATION MQ-2
     // ===================================================
 
     if (!calibrationFinished)
     {
 
-        int gasValue = analogRead(PIN_MQ2);
+        int gasValue =
+            analogRead(PIN_MQ2);
 
         gasCalibrationSum += gasValue;
-
         gasCalibrationCount++;
 
-        if (millis() - startTime < CALIBRATION_TIME)
+        if (
+            millis() - startTime <
+            CALIBRATION_TIME)
         {
 
             delay(100);
-
             return;
         }
 
@@ -419,29 +579,34 @@ void loop()
         calibrationFinished = true;
 
         Serial.println();
-        Serial.println("================================");
+        Serial.println("==============================");
         Serial.println("CALIBRATION MQ-2 TERMINEE");
-        Serial.println("================================");
+        Serial.println("==============================");
 
-        Serial.print("Gaz baseline           : ");
+        Serial.print("Baseline gaz : ");
         Serial.println(gasBaseline);
 
-        Serial.print("Warning relatif        : ");
+        Serial.print("Warning relatif : ");
         Serial.println(
-            gasBaseline + GAS_DELTA_WARNING);
+            gasBaseline +
+            GAS_DELTA_WARNING);
 
-        Serial.print("Critique relatif       : ");
+        Serial.print("Critique relatif : ");
         Serial.println(
-            gasBaseline + GAS_DELTA_CRITICAL);
+            gasBaseline +
+            GAS_DELTA_CRITICAL);
 
-        Serial.print("Warning absolu         : ");
-        Serial.println(GAS_ABSOLUTE_WARNING);
+        Serial.print("Warning absolu : ");
+        Serial.println(
+            GAS_ABSOLUTE_WARNING);
 
-        Serial.print("Critique absolu        : ");
-        Serial.println(GAS_ABSOLUTE_CRITICAL);
+        Serial.print("Critique absolu : ");
+        Serial.println(
+            GAS_ABSOLUTE_CRITICAL);
 
         Serial.println();
-        Serial.println("Sentinel-X operationnel.");
+        Serial.println(
+            "Sentinel-X operationnel.");
         Serial.println();
 
         previousThreatLevel = -1;
@@ -450,10 +615,12 @@ void loop()
     }
 
     // ===================================================
-    // ATTENDRE 1 SECONDE
+    // LECTURE CHAQUE SECONDE
     // ===================================================
 
-    if (millis() - lastRead < READ_INTERVAL)
+    if (
+        millis() - lastRead <
+        READ_INTERVAL)
     {
         return;
     }
@@ -480,7 +647,7 @@ void loop()
         digitalRead(PIN_CAM) == LOW;
 
     // ===================================================
-    // CALCUL MENACE
+    // CALCUL NIVEAU DE MENACE
     // ===================================================
 
     threatLevel =
@@ -497,51 +664,22 @@ void loop()
 
     applyOutputs();
 
-    // ===================================================
-    // MESSAGE DE CHANGEMENT
-    // ===================================================
-
     printThreatMessage();
 
     // ===================================================
-    // AFFICHAGE CAPTEURS
+    // AFFICHAGE LOCAL
     // ===================================================
 
-    Serial.println("------- CAPTEURS -------");
-
-    // Température
+    Serial.println(
+        "------- CAPTEURS -------");
 
     Serial.print("Temperature : ");
-
-    if (isnan(temperature))
-    {
-
-        Serial.println("ERREUR");
-    }
-    else
-    {
-
-        Serial.print(temperature, 1);
-        Serial.println(" C");
-    }
-
-    // Humidité
+    Serial.print(temperature, 1);
+    Serial.println(" C");
 
     Serial.print("Humidite    : ");
-
-    if (isnan(humidity))
-    {
-
-        Serial.println("ERREUR");
-    }
-    else
-    {
-
-        Serial.print(humidity, 1);
-        Serial.println(" %");
-    }
-
-    // Gaz
+    Serial.print(humidity, 1);
+    Serial.println(" %");
 
     Serial.print("Gaz         : ");
     Serial.println(gasValue);
@@ -549,57 +687,28 @@ void loop()
     Serial.print("Gaz baseline: ");
     Serial.println(gasBaseline);
 
-    // PIR
-
     Serial.print("PIR         : ");
-
-    if (pir == HIGH)
-    {
-
-        Serial.println("PRESENCE");
-    }
-    else
-    {
-
-        Serial.println("Aucune presence");
-    }
-
-    // Caméra
+    Serial.println(pir);
 
     Serial.print("Camera      : ");
-
-    if (camera == 1)
-    {
-
-        Serial.println("PERSONNE DETECTEE");
-    }
-    else
-    {
-
-        Serial.println("Aucune detection");
-    }
-
-    // Niveau
+    Serial.println(camera);
 
     Serial.print("Niveau      : ");
     Serial.println(threatLevel);
 
     // ===================================================
-    // JSON
+    // PUBLICATION MQTT
     // ===================================================
 
-    Serial.print("JSON : ");
-
-    Serial.printf(
-        "{\"temp\":%.1f,\"hum\":%.1f,\"gaz\":%d,\"gaz_base\":%d,\"pir\":%d,\"cam\":%d,\"level\":%d}\n",
+    publishSensorData(
         temperature,
         humidity,
         gasValue,
-        gasBaseline,
         pir,
-        camera,
-        threatLevel);
+        camera);
 
-    Serial.println("-------------------------");
+    Serial.println(
+        "-------------------------");
+
     Serial.println();
 }
