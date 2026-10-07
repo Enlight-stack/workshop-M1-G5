@@ -4,6 +4,7 @@ import time
 import joblib
 import numpy as np
 
+from bson import ObjectId
 from pymongo import MongoClient
 
 
@@ -11,9 +12,7 @@ from pymongo import MongoClient
 # CONFIG
 # =====================================================
 
-MONGO_URI = os.getenv(
-    "MONGO_URI"
-)
+MONGO_URI = os.getenv("MONGO_URI")
 
 MODEL_PATH = os.getenv(
     "MODEL_PATH",
@@ -47,46 +46,55 @@ print()
 # ATTENTE DU MODELE
 # =====================================================
 
-while not os.path.exists(
-    MODEL_PATH
-):
-    print(
-        "[AI] Modele introuvable."
-    )
+while not os.path.exists(MODEL_PATH):
 
-    print(
-        "[AI] Lance d'abord "
-        "l'entrainement."
-    )
+    print("[AI] Modele introuvable.")
+    print("[AI] Lance d'abord l'entrainement.")
 
     time.sleep(5)
 
 
 # =====================================================
-# CHARGEMENT MODELE
+# CHARGEMENT DU MODELE
 # =====================================================
 
-model = joblib.load(
-    MODEL_PATH
-)
+model = joblib.load(MODEL_PATH)
 
-print(
-    "[AI] Modele charge."
-)
+print("[AI] Modele charge.")
 
 
 # =====================================================
 # CONNEXION MONGODB
 # =====================================================
 
-client = MongoClient(
-    MONGO_URI,
-    serverSelectionTimeoutMS=5000
-)
+while True:
 
-client.admin.command(
-    "ping"
-)
+    try:
+
+        client = MongoClient(
+            MONGO_URI,
+            serverSelectionTimeoutMS=5000
+        )
+
+        client.admin.command("ping")
+
+        print("[AI] MongoDB connecte.")
+
+        break
+
+    except Exception as error:
+
+        print(
+            "[AI] MongoDB indisponible :",
+            error
+        )
+
+        print(
+            "[AI] Nouvelle tentative dans 5 secondes..."
+        )
+
+        time.sleep(5)
+
 
 db = client["sentinel"]
 
@@ -94,29 +102,113 @@ telemetry = db["telemetry"]
 ai_results = db["ai_results"]
 
 
-print(
-    "[AI] MongoDB connecte."
-)
-
-print(
-    "[AI] Surveillance active."
-)
-
-
 # =====================================================
-# MEMOIRE
+# RETROUVER LA DERNIERE TELEMETRIE DEJA ANALYSEE
 # =====================================================
 
 last_processed_id = None
 
+last_result = ai_results.find_one(
+    sort=[("_id", -1)]
+)
+
+if last_result:
+
+    telemetry_id = last_result.get(
+        "telemetry_id"
+    )
+
+    try:
+
+        last_processed_id = ObjectId(
+            telemetry_id
+        )
+
+        print(
+            "[AI] Reprise apres telemetry :",
+            telemetry_id
+        )
+
+    except Exception:
+
+        print(
+            "[AI] Ancien telemetry_id invalide."
+        )
+
+        last_processed_id = None
+
 
 # =====================================================
-# ANALYSE
+# PREMIER DEMARRAGE
+# =====================================================
+
+if last_processed_id is None:
+
+    latest_telemetry = telemetry.find_one(
+        sort=[("_id", -1)]
+    )
+
+    if latest_telemetry:
+
+        last_processed_id = latest_telemetry["_id"]
+
+        print(
+            "[AI] Premiere execution."
+        )
+
+        print(
+            "[AI] Les anciennes telemetries "
+            "ne seront pas retraitees."
+        )
+
+        print(
+            "[AI] Demarrage apres :",
+            str(last_processed_id)
+        )
+
+
+print()
+print("[AI] Surveillance active.")
+print()
+
+
+# =====================================================
+# ANALYSE D'UNE TELEMETRIE
 # =====================================================
 
 def analyze(doc):
 
+    telemetry_id = str(
+        doc["_id"]
+    )
+
+    # -------------------------------------------------
+    # EVITER LES DOUBLONS
+    # -------------------------------------------------
+
+    existing_result = ai_results.find_one(
+        {
+            "telemetry_id":
+                telemetry_id
+        }
+    )
+
+    if existing_result:
+
+        print(
+            "[AI] Telemetry deja analysee :",
+            telemetry_id
+        )
+
+        return
+
+
+    # -------------------------------------------------
+    # RECUPERATION DES DONNEES
+    # -------------------------------------------------
+
     try:
+
         temperature = float(
             doc["temperature"]
         )
@@ -159,23 +251,29 @@ def analyze(doc):
 
         print(
             "[AI] Telemetrie invalide :",
+            telemetry_id,
             error
         )
 
         return
 
 
+    # -------------------------------------------------
+    # VERIFICATION BASELINE GAZ
+    # -------------------------------------------------
+
     if gas_baseline <= 0:
 
         print(
-            "[AI] Baseline gaz invalide."
+            "[AI] Baseline gaz invalide :",
+            telemetry_id
         )
 
         return
 
 
     # =================================================
-    # FEATURES NORMALISEES PAR RAPPORT A LA BASELINE
+    # FEATURES
     # =================================================
 
     gas_delta = (
@@ -203,26 +301,16 @@ def analyze(doc):
 
 
     # =================================================
-    # PREDICTION
+    # PREDICTION IA
     # =================================================
 
     prediction = int(
-        model.predict(
-            X
-        )[0]
+        model.predict(X)[0]
     )
 
     decision_score = float(
-        model.decision_function(
-            X
-        )[0]
+        model.decision_function(X)[0]
     )
-
-
-    # Isolation Forest :
-    #
-    #  1 = normal
-    # -1 = anomalie
 
     is_anomaly = (
         prediction == -1
@@ -236,9 +324,7 @@ def analyze(doc):
     result = {
 
         "telemetry_id":
-            str(
-                doc["_id"]
-            ),
+            telemetry_id,
 
         "device_id":
             doc.get(
@@ -264,18 +350,14 @@ def analyze(doc):
             gas_ratio,
 
         "pir":
-            bool(
-                pir
-            ),
+            bool(pir),
 
         "camera":
-            bool(
-                camera
-            ),
+            bool(camera),
 
-        # Niveau calcule par les regles ESP32.
-        # Il est conserve uniquement pour comparaison,
-        # PAS utilise comme entree IA.
+        # Niveau calcule par l'ESP32.
+        # Conserve pour comparaison.
+        # Il n'est PAS utilise comme feature IA.
         "rule_level":
             doc.get(
                 "level"
@@ -295,7 +377,7 @@ def analyze(doc):
 
 
     # =================================================
-    # STOCKAGE DU RESULTAT IA
+    # ENREGISTREMENT
     # =================================================
 
     ai_results.insert_one(
@@ -310,9 +392,7 @@ def analyze(doc):
     print()
     print(
         "[AI] Telemetry :",
-        str(
-            doc["_id"]
-        )
+        telemetry_id
     )
 
     print(
@@ -398,41 +478,41 @@ while True:
 
     try:
 
-        latest = telemetry.find_one(
-            sort=[
-                (
-                    "received_at",
-                    -1
-                )
-            ]
+        # ---------------------------------------------
+        # RECUPERER TOUTES LES NOUVELLES TELEMETRIES
+        # ---------------------------------------------
+
+        query = {}
+
+        if last_processed_id is not None:
+
+            query = {
+                "_id": {
+                    "$gt":
+                        last_processed_id
+                }
+            }
+
+
+        new_documents = list(
+            telemetry
+            .find(query)
+            .sort("_id", 1)
         )
 
 
-        if latest is None:
+        # ---------------------------------------------
+        # TRAITEMENT DANS L'ORDRE
+        # ---------------------------------------------
 
-            time.sleep(
-                CHECK_INTERVAL
-            )
+        for doc in new_documents:
 
-            continue
+            analyze(doc)
 
-
-        current_id = str(
-            latest["_id"]
-        )
-
-
-        if (
-            current_id
-            != last_processed_id
-        ):
-
-            analyze(
-                latest
-            )
-
+            # Même si la donnée est invalide,
+            # on avance pour ne pas bloquer la boucle.
             last_processed_id = (
-                current_id
+                doc["_id"]
             )
 
 
