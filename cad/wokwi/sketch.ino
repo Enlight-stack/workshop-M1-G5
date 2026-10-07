@@ -26,6 +26,7 @@
 // ===============================
 
 #define DHTTYPE DHT22
+
 DHT dht(PIN_DHT, DHTTYPE);
 
 // ===============================
@@ -112,7 +113,6 @@ int previousThreatLevel = -1;
 
 void connectWiFi()
 {
-
     if (WiFi.status() == WL_CONNECTED)
     {
         return;
@@ -129,7 +129,6 @@ void connectWiFi()
 
     while (WiFi.status() != WL_CONNECTED)
     {
-
         delay(250);
         Serial.print(".");
     }
@@ -149,15 +148,12 @@ void connectWiFi()
 
 void connectMQTT()
 {
-
     while (!mqttClient.connected())
     {
-
         Serial.print("Connexion MQTT... ");
 
         if (mqttClient.connect(MQTT_CLIENT_ID))
         {
-
             Serial.println("OK");
 
             Serial.print("Broker : ");
@@ -172,7 +168,6 @@ void connectMQTT()
         }
         else
         {
-
             Serial.print("ECHEC - code : ");
             Serial.println(mqttClient.state());
 
@@ -190,30 +185,24 @@ void connectMQTT()
 
 void applyOutputs()
 {
-
     if (threatLevel == 0)
     {
-
         digitalWrite(LED_GREEN, HIGH);
         digitalWrite(LED_ORANGE, LOW);
         digitalWrite(LED_RED, LOW);
 
         noTone(PIN_BUZZER);
     }
-
     else if (threatLevel == 1)
     {
-
         digitalWrite(LED_GREEN, LOW);
         digitalWrite(LED_ORANGE, HIGH);
         digitalWrite(LED_RED, LOW);
 
         noTone(PIN_BUZZER);
     }
-
     else
     {
-
         digitalWrite(LED_GREEN, LOW);
         digitalWrite(LED_ORANGE, LOW);
         digitalWrite(LED_RED, HIGH);
@@ -233,7 +222,6 @@ int calculateThreatLevel(
     int pir,
     int camera)
 {
-
     // ==========================================
     // NIVEAU 2 : CRITIQUE
     // ==========================================
@@ -265,7 +253,6 @@ int calculateThreatLevel(
 
     if (!isnan(temperature))
     {
-
         if (
             temperature < TEMP_CRITICAL_LOW ||
             temperature > TEMP_CRITICAL_HIGH)
@@ -278,7 +265,6 @@ int calculateThreatLevel(
 
     if (!isnan(humidity))
     {
-
         if (
             humidity < HUM_CRITICAL_LOW ||
             humidity > HUM_CRITICAL_HIGH)
@@ -294,6 +280,13 @@ int calculateThreatLevel(
     // PIR seul
 
     if (pir == HIGH)
+    {
+        return 1;
+    }
+
+    // Caméra seule
+
+    if (camera == 1)
     {
         return 1;
     }
@@ -318,7 +311,6 @@ int calculateThreatLevel(
 
     if (!isnan(temperature))
     {
-
         if (
             temperature < TEMP_WARNING_LOW ||
             temperature > TEMP_WARNING_HIGH)
@@ -331,7 +323,6 @@ int calculateThreatLevel(
 
     if (!isnan(humidity))
     {
-
         if (
             humidity < HUM_WARNING_LOW ||
             humidity > HUM_WARNING_HIGH)
@@ -353,7 +344,6 @@ int calculateThreatLevel(
 
 void printThreatMessage()
 {
-
     if (threatLevel == previousThreatLevel)
     {
         return;
@@ -363,7 +353,6 @@ void printThreatMessage()
 
     if (threatLevel == 0)
     {
-
         Serial.println("==============================");
         Serial.println("          SENTINEL-X");
         Serial.println("ETAT : NORMAL");
@@ -372,10 +361,8 @@ void printThreatMessage()
         Serial.println("BUZZER OFF");
         Serial.println("==============================");
     }
-
     else if (threatLevel == 1)
     {
-
         Serial.println("==============================");
         Serial.println("          SENTINEL-X");
         Serial.println("ETAT : ANOMALIE");
@@ -384,10 +371,8 @@ void printThreatMessage()
         Serial.println("BUZZER OFF");
         Serial.println("==============================");
     }
-
     else
     {
-
         Serial.println("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
         Serial.println("          SENTINEL-X");
         Serial.println("ETAT : ALERTE CRITIQUE");
@@ -413,7 +398,6 @@ void publishSensorData(
     int pir,
     int camera)
 {
-
     char payload[256];
 
     snprintf(
@@ -435,7 +419,6 @@ void publishSensorData(
 
     if (published)
     {
-
         Serial.print("MQTT PUB -> ");
         Serial.print(MQTT_TOPIC);
         Serial.print(" : ");
@@ -443,7 +426,6 @@ void publishSensorData(
     }
     else
     {
-
         Serial.println(
             "ERREUR : publication MQTT impossible");
     }
@@ -455,7 +437,6 @@ void publishSensorData(
 
 void setup()
 {
-
     Serial.begin(115200);
 
     delay(500);
@@ -529,7 +510,6 @@ void setup()
 
 void loop()
 {
-
     // ===================================================
     // MAINTIEN WIFI / MQTT
     // ===================================================
@@ -552,7 +532,6 @@ void loop()
 
     if (!calibrationFinished)
     {
-
         int gasValue =
             analogRead(PIN_MQ2);
 
@@ -563,14 +542,12 @@ void loop()
             millis() - startTime <
             CALIBRATION_TIME)
         {
-
             delay(100);
             return;
         }
 
         if (gasCalibrationCount > 0)
         {
-
             gasBaseline =
                 gasCalibrationSum /
                 gasCalibrationCount;
@@ -605,8 +582,10 @@ void loop()
             GAS_ABSOLUTE_CRITICAL);
 
         Serial.println();
+
         Serial.println(
             "Sentinel-X operationnel.");
+
         Serial.println();
 
         previousThreatLevel = -1;
