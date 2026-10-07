@@ -6,6 +6,7 @@ html,
 body,
 #root {
     margin: 0;
+    padding: 0;
     min-height: 100%;
 }
 
@@ -17,10 +18,13 @@ body {
         sans-serif;
 
     background: #0b1020;
-
     color: #f4f7ff;
 }
 
+
+/* ========================================= */
+/* HEADER */
+/* ========================================= */
 
 .header {
     display: flex;
@@ -28,6 +32,8 @@ body {
     justify-content: space-between;
 
     align-items: center;
+
+    gap: 20px;
 
     padding:
         24px
@@ -44,62 +50,37 @@ body {
 .header h1 {
     margin: 0;
 
-    font-size: 30px;
+    font-size: 32px;
 
-    letter-spacing: 4px;
+    letter-spacing: 5px;
+
+    font-weight: 800;
 }
 
 
 .header p {
     margin:
-        6px
+        8px
         0
         0;
 
     color:
         #8f9bb3;
-}
-
-
-.connection {
-    padding:
-        10px
-        16px;
-
-    border-radius:
-        20px;
-
-    font-weight:
-        700;
 
     font-size:
-        13px;
+        14px;
 }
 
 
-.connection.online {
-    background:
-        #153b2c;
-
-    color:
-        #55e69f;
-}
-
-
-.connection.offline {
-    background:
-        #441f27;
-
-    color:
-        #ff7085;
-}
-
+/* ========================================= */
+/* GENERAL */
+/* ========================================= */
 
 .container {
     width:
         min(
-            1400px,
-            94%
+            1500px,
+            96%
         );
 
     margin:
@@ -111,7 +92,7 @@ body {
 
 section {
     margin-bottom:
-        40px;
+        42px;
 }
 
 
@@ -121,18 +102,25 @@ h2 {
         0
         18px;
 
+    font-size:
+        20px;
+
     color:
         #dce4ff;
 }
 
 
-.status-grid,
-.sensor-grid {
-    display: grid;
+/* ========================================= */
+/* STATUS GRID */
+/* ========================================= */
+
+.status-grid {
+    display:
+        grid;
 
     grid-template-columns:
         repeat(
-            4,
+            3,
             minmax(
                 0,
                 1fr
@@ -144,8 +132,17 @@ h2 {
 }
 
 
-.status-card,
-.sensor-card {
+/* ========================================= */
+/* STATUS CARD */
+/* ========================================= */
+
+.status-card {
+    min-width:
+        0;
+
+    padding:
+        22px;
+
     background:
         #11182b;
 
@@ -155,11 +152,16 @@ h2 {
     border-radius:
         14px;
 
-    padding:
-        22px;
-
-    min-width:
-        0;
+    box-shadow:
+        0
+        8px
+        25px
+        rgba(
+            0,
+            0,
+            0,
+            0.18
+        );
 }
 
 
@@ -170,11 +172,17 @@ h2 {
     margin-bottom:
         12px;
 
-    font-size:
-        13px;
-
     color:
         #8f9bb3;
+
+    font-size:
+        12px;
+
+    font-weight:
+        700;
+
+    letter-spacing:
+        0.5px;
 
     text-transform:
         uppercase;
@@ -192,6 +200,10 @@ h2 {
         anywhere;
 }
 
+
+/* ========================================= */
+/* STATUS COLORS */
+/* ========================================= */
 
 .status-normal {
     color:
@@ -211,12 +223,95 @@ h2 {
 }
 
 
+.status-neutral {
+    color:
+        #94a3b8;
+}
+
+
+/* ========================================= */
+/* SENSOR GRID */
+/* ========================================= */
+
+.sensor-grid {
+    display:
+        grid;
+
+    grid-template-columns:
+        repeat(
+            4,
+            minmax(
+                0,
+                1fr
+            )
+        );
+
+    gap:
+        18px;
+}
+
+
+/* ========================================= */
+/* SENSOR CARD */
+/* ========================================= */
+
+.sensor-card {
+    min-width:
+        0;
+
+    padding:
+        22px;
+
+    background:
+        #11182b;
+
+    border:
+        1px solid #27324d;
+
+    border-radius:
+        14px;
+
+    box-shadow:
+        0
+        8px
+        25px
+        rgba(
+            0,
+            0,
+            0,
+            0.15
+        );
+
+    transition:
+        transform
+        0.2s
+        ease,
+        border-color
+        0.2s
+        ease;
+}
+
+
+.sensor-card:hover {
+    transform:
+        translateY(
+            -2px
+        );
+
+    border-color:
+        #3d4b70;
+}
+
+
 .sensor-value {
     font-size:
-        29px;
+        30px;
 
     font-weight:
-        700;
+        800;
+
+    color:
+        #f8fafc;
 }
 
 
@@ -226,8 +321,15 @@ h2 {
 
     color:
         #8f9bb3;
+
+    font-size:
+        16px;
 }
 
+
+/* ========================================= */
+/* CHART GRID */
+/* ========================================= */
 
 .charts {
     display:
@@ -235,7 +337,7 @@ h2 {
 
     grid-template-columns:
         repeat(
-            2,
+            3,
             minmax(
                 0,
                 1fr
@@ -244,12 +346,22 @@ h2 {
 
     gap:
         20px;
+
+    align-items:
+        stretch;
 }
 
 
+/* ========================================= */
+/* CHART CARD */
+/* ========================================= */
+
 .chart-card {
+    min-width:
+        0;
+
     height:
-        360px;
+        330px;
 
     padding:
         20px;
@@ -265,6 +377,17 @@ h2 {
 
     border-radius:
         14px;
+
+    box-shadow:
+        0
+        8px
+        25px
+        rgba(
+            0,
+            0,
+            0,
+            0.16
+        );
 }
 
 
@@ -274,13 +397,20 @@ h2 {
         0
         15px;
 
-    color:
-        #aeb9d4;
-
     font-size:
         15px;
+
+    font-weight:
+        700;
+
+    color:
+        #dbeafe;
 }
 
+
+/* ========================================= */
+/* CHART WRAPPER */
+/* ========================================= */
 
 .chart-wrapper {
     position:
@@ -290,9 +420,27 @@ h2 {
         100%;
 
     height:
-        285px;
+        260px;
 }
 
+
+.chart-wrapper canvas {
+    display:
+        block;
+
+    width:
+        100%
+        !important;
+
+    height:
+        100%
+        !important;
+}
+
+
+/* ========================================= */
+/* TABLE */
+/* ========================================= */
 
 .table-container {
     width:
@@ -309,6 +457,17 @@ h2 {
 
     border-radius:
         14px;
+
+    box-shadow:
+        0
+        8px
+        25px
+        rgba(
+            0,
+            0,
+            0,
+            0.14
+        );
 }
 
 
@@ -317,7 +476,7 @@ table {
         100%;
 
     min-width:
-        900px;
+        850px;
 
     border-collapse:
         collapse;
@@ -327,7 +486,7 @@ table {
 th,
 td {
     padding:
-        14px
+        15px
         16px;
 
     text-align:
@@ -348,33 +507,81 @@ th {
     font-size:
         12px;
 
+    font-weight:
+        700;
+
+    letter-spacing:
+        0.4px;
+
     text-transform:
         uppercase;
+
+    background:
+        #10172a;
 }
 
 
 td {
     font-size:
         14px;
+
+    color:
+        #e5e7eb;
 }
 
 
+tbody tr {
+    transition:
+        background
+        0.15s
+        ease;
+}
+
+
+tbody tr:hover {
+    background:
+        #151e34;
+}
+
+
+tbody tr:last-child td {
+    border-bottom:
+        none;
+}
+
+
+/* ========================================= */
+/* BADGES */
+/* ========================================= */
+
 .badge {
     display:
-        inline-block;
+        inline-flex;
+
+    align-items:
+        center;
+
+    justify-content:
+        center;
+
+    min-width:
+        52px;
 
     padding:
         6px
         10px;
 
     border-radius:
-        14px;
+        999px;
 
     font-size:
-        12px;
+        11px;
 
     font-weight:
-        700;
+        800;
+
+    letter-spacing:
+        0.3px;
 }
 
 
@@ -405,28 +612,71 @@ td {
 }
 
 
+/* ========================================= */
+/* FOOTER */
+/* ========================================= */
+
 footer {
     padding-top:
         20px;
 
-    text-align:
-        center;
-
     color:
         #6f7c99;
 
+    text-align:
+        center;
+
     font-size:
         13px;
+
+    line-height:
+        1.8;
 }
 
 
+/* ========================================= */
+/* SCROLLBAR */
+/* ========================================= */
+
+::-webkit-scrollbar {
+    width:
+        10px;
+
+    height:
+        10px;
+}
+
+
+::-webkit-scrollbar-track {
+    background:
+        #0b1020;
+}
+
+
+::-webkit-scrollbar-thumb {
+    background:
+        #27324d;
+
+    border-radius:
+        10px;
+}
+
+
+::-webkit-scrollbar-thumb:hover {
+    background:
+        #3a496d;
+}
+
+
+/* ========================================= */
+/* RESPONSIVE */
+/* ========================================= */
+
 @media (
-    max-width: 1000px
+    max-width: 1100px
 ) {
 
-    .status-grid,
     .sensor-grid {
-
         grid-template-columns:
             repeat(
                 2,
@@ -435,34 +685,81 @@ footer {
                     1fr
                 )
             );
+    }
 
+
+    .charts {
+        grid-template-columns:
+            repeat(
+                2,
+                minmax(
+                    0,
+                    1fr
+                )
+            );
     }
 
 }
 
 
 @media (
-    max-width: 700px
+    max-width: 750px
 ) {
 
     .header {
+        padding:
+            20px;
 
         flex-direction:
             column;
 
         align-items:
             flex-start;
-
     }
 
 
-    .status-grid,
-    .sensor-grid,
-    .charts {
+    .header h1 {
+        font-size:
+            27px;
+    }
 
+
+    .container {
+        width:
+            94%;
+
+        margin-top:
+            22px;
+    }
+
+
+    .status-grid {
         grid-template-columns:
             1fr;
+    }
 
+
+    .sensor-grid {
+        grid-template-columns:
+            1fr;
+    }
+
+
+    .charts {
+        grid-template-columns:
+            1fr;
+    }
+
+
+    .chart-card {
+        height:
+            350px;
+    }
+
+
+    .chart-wrapper {
+        height:
+            280px;
     }
 
 }

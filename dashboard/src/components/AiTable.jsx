@@ -1,15 +1,44 @@
-function formatTime(value) {
+function parseApiDate(value) {
 
     if (!value) {
+        return null;
+    }
+
+
+    const hasTimezone =
+        value.endsWith("Z") ||
+        /[+-]\d{2}:\d{2}$/.test(value);
+
+
+    return new Date(
+        hasTimezone
+            ? value
+            : `${value}Z`
+    );
+}
+
+
+function formatTime(value) {
+
+    const date =
+        parseApiDate(
+            value
+        );
+
+
+    if (!date) {
         return "--";
     }
 
-    return new Date(
-        value
-    ).toLocaleTimeString(
-        "fr-FR"
-    );
 
+    return date.toLocaleTimeString(
+        "fr-FR",
+        {
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit"
+        }
+    );
 }
 
 
@@ -27,12 +56,12 @@ function formatNumber(
 
     }
 
+
     return Number(
         value
     ).toFixed(
         decimals
     );
-
 }
 
 
@@ -42,7 +71,9 @@ export default function AiTable({
 
     return (
 
-        <div className="table-container">
+        <div
+            className="table-container"
+        >
 
             <table>
 
@@ -50,23 +81,37 @@ export default function AiTable({
 
                     <tr>
 
-                        <th>Heure</th>
+                        <th>
+                            Heure
+                        </th>
 
-                        <th>Temp</th>
+                        <th>
+                            Température
+                        </th>
 
-                        <th>Humidité</th>
+                        <th>
+                            Humidité
+                        </th>
 
-                        <th>Gaz</th>
+                        <th>
+                            Gaz
+                        </th>
 
-                        <th>PIR</th>
+                        <th>
+                            PIR
+                        </th>
 
-                        <th>Cam</th>
+                        <th>
+                            Caméra
+                        </th>
 
-                        <th>Niveau</th>
+                        <th>
+                            Niveau
+                        </th>
 
-                        <th>Score IA</th>
-
-                        <th>IA</th>
+                        <th>
+                            Analyse IA
+                        </th>
 
                     </tr>
 
@@ -86,7 +131,9 @@ export default function AiTable({
                                 result => (
 
                                     <tr
-                                        key={result._id}
+                                        key={
+                                            result._id
+                                        }
                                     >
 
                                         <td>
@@ -104,9 +151,12 @@ export default function AiTable({
 
                                             {
                                                 formatNumber(
-                                                    result.temperature
+                                                    result.temperature,
+                                                    1
                                                 )
-                                            } °C
+                                            }
+
+                                            {" °C"}
 
                                         </td>
 
@@ -115,15 +165,23 @@ export default function AiTable({
 
                                             {
                                                 formatNumber(
-                                                    result.humidity
+                                                    result.humidity,
+                                                    1
                                                 )
-                                            } %
+                                            }
+
+                                            {" %"}
 
                                         </td>
 
 
                                         <td>
-                                            {result.gas}
+
+                                            {
+                                                result.gas ??
+                                                "--"
+                                            }
+
                                         </td>
 
 
@@ -162,21 +220,11 @@ export default function AiTable({
                                                 }
                                             >
 
-                                                {result.rule_level}
+                                                {
+                                                    result.rule_level
+                                                }
 
                                             </span>
-
-                                        </td>
-
-
-                                        <td>
-
-                                            {
-                                                formatNumber(
-                                                    result.anomaly_score,
-                                                    4
-                                                )
-                                            }
 
                                         </td>
 
@@ -194,7 +242,7 @@ export default function AiTable({
 
                                                 {
                                                     result.is_anomaly
-                                                        ? "ANOMALIE"
+                                                        ? "ACTIVITÉ SUSPECTE"
                                                         : "NORMAL"
                                                 }
 

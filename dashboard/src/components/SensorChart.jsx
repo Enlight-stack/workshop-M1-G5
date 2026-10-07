@@ -9,7 +9,8 @@ import {
     PointElement,
     LineElement,
     Tooltip,
-    Legend
+    Legend,
+    Filler
 } from "chart.js";
 
 
@@ -19,14 +20,16 @@ ChartJS.register(
     PointElement,
     LineElement,
     Tooltip,
-    Legend
+    Legend,
+    Filler
 );
 
 
 export default function SensorChart({
     title,
     labels,
-    values
+    values,
+    color = "#38bdf8"
 }) {
 
     const data = {
@@ -37,13 +40,38 @@ export default function SensorChart({
 
             {
 
-                label: title,
+                label:
+                    title,
 
-                data: values,
+                data:
+                    values,
 
-                tension: 0.3,
+                borderColor:
+                    color,
 
-                pointRadius: 2
+                backgroundColor:
+                    `${color}22`,
+
+                pointBackgroundColor:
+                    color,
+
+                pointBorderColor:
+                    color,
+
+                pointRadius:
+                    3,
+
+                pointHoverRadius:
+                    6,
+
+                borderWidth:
+                    3,
+
+                tension:
+                    0.25,
+
+                fill:
+                    true
 
             }
 
@@ -54,11 +82,24 @@ export default function SensorChart({
 
     const options = {
 
-        responsive: true,
+        responsive:
+            true,
 
-        maintainAspectRatio: false,
+        maintainAspectRatio:
+            false,
 
-        animation: false,
+        animation:
+            false,
+
+        interaction: {
+
+            intersect:
+                false,
+
+            mode:
+                "index"
+
+        },
 
         plugins: {
 
@@ -66,13 +107,30 @@ export default function SensorChart({
 
                 labels: {
 
-                    color: "#aeb9d4"
+                    color:
+                        "#dbeafe",
+
+                    font: {
+
+                        size:
+                            13
+
+                    }
 
                 }
+
+            },
+
+
+            tooltip: {
+
+                enabled:
+                    true
 
             }
 
         },
+
 
         scales: {
 
@@ -80,29 +138,63 @@ export default function SensorChart({
 
                 ticks: {
 
-                    color: "#7886a3"
+                    color:
+                        "#94a3b8",
+
+                    maxRotation:
+                        45,
+
+                    minRotation:
+                        45,
+
+                    autoSkip:
+                        true,
+
+                    maxTicksLimit:
+                        8
 
                 },
 
                 grid: {
 
-                    color: "#202942"
+                    color:
+                        "rgba(148, 163, 184, 0.15)"
+
+                },
+
+                border: {
+
+                    color:
+                        "rgba(148, 163, 184, 0.35)"
 
                 }
 
             },
 
+
             y: {
+
+                beginAtZero:
+                    false,
 
                 ticks: {
 
-                    color: "#7886a3"
+                    color:
+                        "#94a3b8"
 
                 },
 
                 grid: {
 
-                    color: "#202942"
+                    color:
+                        "rgba(148, 163, 184, 0.16)"
+
+                },
+
+                border: {
+
+                    color:
+                        "rgba(148, 163, 184, 0.35)"
 
                 }
 
@@ -115,13 +207,18 @@ export default function SensorChart({
 
     return (
 
-        <div className="chart-card">
+        <div
+            className="chart-card"
+        >
 
             <h3>
                 {title}
             </h3>
 
-            <div className="chart-wrapper">
+
+            <div
+                className="chart-wrapper"
+            >
 
                 <Line
                     data={data}

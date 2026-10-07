@@ -1,5 +1,6 @@
 import {
     useEffect,
+    useRef,
     useState
 } from "react";
 
@@ -16,7 +17,88 @@ import AiTable
     from "./components/AiTable.jsx";
 
 
-const REFRESH_INTERVAL = 2000;
+const REFRESH_INTERVAL = 1000;
+
+const SENSOR_TIMEOUT = 5000;
+
+const MAX_GRAPH_POINTS = 30;
+
+
+const EMPTY_TELEMETRY = {
+
+    temperature: 0,
+
+    humidity: 0,
+
+    gas: 0,
+
+    gas_baseline: 0,
+
+    pir: false,
+
+    camera: false,
+
+    level: 0
+
+};
+
+
+function parseApiDate(value) {
+
+    if (!value) {
+        return null;
+    }
+
+
+    const hasTimezone =
+        value.endsWith("Z") ||
+        /[+-]\d{2}:\d{2}$/.test(value);
+
+
+    return new Date(
+
+        hasTimezone
+            ? value
+            : `${value}Z`
+
+    );
+
+}
+
+
+function formatTime(value) {
+
+    const date =
+        parseApiDate(
+            value
+        );
+
+
+    if (!date) {
+        return "--";
+    }
+
+
+    return date.toLocaleTimeString(
+
+        "fr-FR",
+
+        {
+
+            hour:
+                "2-digit",
+
+            minute:
+                "2-digit",
+
+            second:
+                "2-digit"
+
+        }
+
+    );
+
+}
 
 
 function formatNumber(
@@ -29,9 +111,10 @@ function formatNumber(
         value === undefined
     ) {
 
-        return "--";
+        return "0";
 
     }
+
 
     return Number(
         value
@@ -42,29 +125,22 @@ function formatNumber(
 }
 
 
-function formatTime(
-    value
-) {
-
-    if (!value) {
-        return "--";
-    }
-
-    return new Date(
-        value
-    ).toLocaleTimeString(
-        "fr-FR"
-    );
-
-}
-
-
 export default function App() {
 
     const [
-        status,
-        setStatus
-    ] = useState(null);
+        currentTelemetry,
+        setCurrentTelemetry
+    ] = useState(
+        EMPTY_TELEMETRY
+    );
+
+
+    const [
+        currentAI,
+        setCurrentAI
+    ] = useState(
+        null
+    );
 
 
     const [
@@ -80,57 +156,75 @@ export default function App() {
 
 
     const [
-        online,
-        setOnline
-    ] = useState(false);
-
-
-    const [
         lastUpdate,
         setLastUpdate
     ] = useState("--");
+
+
+    const initialized =
+        useRef(false);
+
+
+    const seenTelemetryIds =
+        useRef(
+            new Set()
+        );
+
+
+    const seenAiIds =
+        useRef(
+            new Set()
+        );
+
+
+    const lastTelemetryTime =
+        useRef(null);
+
+
+    const currentTelemetryId =
+        useRef(null);
 
 
     async function refresh() {
 
         try {
 
+            const timestamp =
+                Date.now();
+
+
             const [
-                statusResponse,
                 telemetryResponse,
                 aiResponse
             ] = await Promise.all([
 
                 fetch(
-                    "/api/status"
+                    `/api/telemetry?limit=30&t=${timestamp}`,
+                    {
+                        cache: "no-store"
+                    }
                 ),
 
                 fetch(
-                    "/api/telemetry?limit=30"
-                ),
-
-                fetch(
-                    "/api/ai-results?limit=30"
+                    `/api/ai-results?limit=30&t=${timestamp}`,
+                    {
+                        cache: "no-store"
+                    }
                 )
 
             ]);
 
 
             if (
-                !statusResponse.ok ||
                 !telemetryResponse.ok ||
                 !aiResponse.ok
             ) {
 
                 throw new Error(
-                    "API indisponible"
+                    "Impossible de récupérer les données"
                 );
 
             }
-
-
-            const statusData =
-                await statusResponse.json();
 
 
             const telemetryData =
@@ -141,21 +235,319 @@ export default function App() {
                 await aiResponse.json();
 
 
-            setStatus(
-                statusData
+            const telemetryList =
+                Array.isArray(
+                    telemetryData
+                )
+                    ? telemetryData
+                    : [];
+
+
+            const aiList =
+                Array.isArray(
+                    aiData
+                )
+                    ? aiData
+                    : [];
+
+
+            // ===============================================
+            // INITIALISATION
+            // ===============================================
+
+            if (
+                !initialized.current
+            ) {
+
+                telemetryList.forEach(
+                    item => {
+
+                        if (
+                            item._id
+                        ) {
+
+                            seenTelemetryIds
+                                .current
+                                .add(
+                                    item._id
+                                );
+
+                        }
+
+                    }
+                );
+
+
+                aiList.forEach(
+                    item => {
+
+                        if (
+                            item._id
+                        ) {
+
+                            seenAiIds
+                                .current
+                                .add(
+                                    item._id
+                                );
+
+                        }
+
+                    }
+                );
+
+
+                initialized.current =
+                    true;
+
+
+                setLastUpdate(
+                    new Date()
+                        .toLocaleTimeString(
+                            "fr-FR"
+                        )
+                );
+
+
+                return;
+
+            }
+
+
+            // ===============================================
+            // TELEMETRIES
+            // ===============================================
+
+            const newTelemetry =
+                telemetryList
+                    .filter(
+                        item =>
+                            item._id &&
+                            !seenTelemetryIds
+                                .current
+                                .has(
+                                    item._id
+                                )
+                    );
+
+
+            newTelemetry.forEach(
+                item => {
+
+                    seenTelemetryIds
+                        .current
+                        .add(
+                            item._id
+                        );
+
+                }
             );
 
-            setTelemetryHistory(
-                telemetryData
+
+            newTelemetry.sort(
+                (a, b) => {
+
+                    const dateA =
+                        parseApiDate(
+                            a.received_at
+                        );
+
+
+                    const dateB =
+                        parseApiDate(
+                            b.received_at
+                        );
+
+
+                    return (
+                        dateA?.getTime() ?? 0
+                    ) - (
+                            dateB?.getTime() ?? 0
+                        );
+
+                }
             );
 
-            setAiHistory(
-                aiData
+
+            if (
+                newTelemetry.length > 0
+            ) {
+
+                const latest =
+                    newTelemetry[
+                    newTelemetry.length - 1
+                    ];
+
+
+                setCurrentTelemetry(
+                    latest
+                );
+
+
+                currentTelemetryId.current =
+                    latest._id;
+
+
+                lastTelemetryTime.current =
+                    Date.now();
+
+
+                setTelemetryHistory(
+                    previous => {
+
+                        const updated = [
+
+                            ...previous,
+
+                            ...newTelemetry
+
+                        ];
+
+
+                        return updated.slice(
+                            -MAX_GRAPH_POINTS
+                        );
+
+                    }
+                );
+
+            }
+
+
+            // ===============================================
+            // IA
+            // ===============================================
+
+            const newAiResults =
+                aiList
+                    .filter(
+                        item =>
+                            item._id &&
+                            !seenAiIds
+                                .current
+                                .has(
+                                    item._id
+                                )
+                    );
+
+
+            newAiResults.forEach(
+                item => {
+
+                    seenAiIds
+                        .current
+                        .add(
+                            item._id
+                        );
+
+                }
             );
 
-            setOnline(
-                true
+
+            newAiResults.sort(
+                (a, b) => {
+
+                    const dateA =
+                        parseApiDate(
+                            a.received_at
+                        );
+
+
+                    const dateB =
+                        parseApiDate(
+                            b.received_at
+                        );
+
+
+                    return (
+                        dateA?.getTime() ?? 0
+                    ) - (
+                            dateB?.getTime() ?? 0
+                        );
+
+                }
             );
+
+
+            if (
+                newAiResults.length > 0
+            ) {
+
+                setAiHistory(
+                    previous => {
+
+                        const updated = [
+
+                            ...previous,
+
+                            ...newAiResults
+
+                        ];
+
+
+                        return updated.slice(
+                            -30
+                        );
+
+                    }
+                );
+
+
+                // Toujours utiliser l'analyse IA
+                // la plus récente.
+
+                const latestAI =
+                    newAiResults[
+                    newAiResults.length - 1
+                    ];
+
+
+                setCurrentAI(
+                    latestAI
+                );
+
+            }
+
+
+            // ===============================================
+            // TIMEOUT
+            // ===============================================
+
+            if (
+                lastTelemetryTime.current !== null
+            ) {
+
+                const elapsed =
+                    Date.now() -
+                    lastTelemetryTime.current;
+
+
+                if (
+                    elapsed >
+                    SENSOR_TIMEOUT
+                ) {
+
+                    setCurrentTelemetry(
+                        EMPTY_TELEMETRY
+                    );
+
+
+                    setCurrentAI(
+                        null
+                    );
+
+
+                    currentTelemetryId.current =
+                        null;
+
+
+                    lastTelemetryTime.current =
+                        null;
+
+                }
+
+            }
+
 
             setLastUpdate(
                 new Date()
@@ -169,11 +561,8 @@ export default function App() {
         catch (error) {
 
             console.error(
+                "Erreur VIGIL-X :",
                 error
-            );
-
-            setOnline(
-                false
             );
 
         }
@@ -186,6 +575,7 @@ export default function App() {
 
             refresh();
 
+
             const interval =
                 setInterval(
                     refresh,
@@ -193,119 +583,147 @@ export default function App() {
                 );
 
 
-            return () =>
+            return () => {
+
                 clearInterval(
                     interval
                 );
+
+            };
 
         },
         []
     );
 
 
-    const telemetry =
-        status?.telemetry;
+    // ===================================================
+    // ETAT SYSTEME
+    // ===================================================
+
+    const hasCurrentData =
+        currentTelemetryId.current !== null;
 
 
-    const ai =
-        status?.ai;
+    let ruleText =
+        "EN ATTENTE";
 
 
-    const ruleLevel =
-        telemetry?.level;
+    let ruleType =
+        "neutral";
 
 
-    let ruleText = "--";
+    if (
+        hasCurrentData
+    ) {
 
-    let ruleType = "normal";
+        if (
+            currentTelemetry.level === 0
+        ) {
 
+            ruleText =
+                "NORMAL";
 
-    if (ruleLevel === 0) {
+            ruleType =
+                "normal";
 
-        ruleText =
-            "NORMAL";
+        }
 
-        ruleType =
-            "normal";
+        else if (
+            currentTelemetry.level === 1
+        ) {
+
+            ruleText =
+                "WARNING";
+
+            ruleType =
+                "warning";
+
+        }
+
+        else if (
+            currentTelemetry.level === 2
+        ) {
+
+            ruleText =
+                "CRITIQUE";
+
+            ruleType =
+                "critical";
+
+        }
 
     }
 
-    else if (ruleLevel === 1) {
 
-        ruleText =
-            "WARNING";
+    // ===================================================
+    // ETAT IA
+    // ===================================================
 
-        ruleType =
-            "warning";
+    let aiText =
+        "--";
+
+
+    let aiType =
+        "neutral";
+
+
+    if (
+        currentAI
+    ) {
+
+        if (
+            currentAI.is_anomaly
+        ) {
+
+            aiText =
+                "ACTIVITÉ SUSPECTE";
+
+            aiType =
+                "critical";
+
+        }
+
+        else {
+
+            aiText =
+                "NORMAL";
+
+            aiType =
+                "normal";
+
+        }
 
     }
-
-    else if (ruleLevel === 2) {
-
-        ruleText =
-            "CRITIQUE";
-
-        ruleType =
-            "critical";
-
-    }
-
-
-    const aiType =
-        ai?.is_anomaly
-            ? "critical"
-            : "normal";
-
-
-    const chronologicalTelemetry =
-        [...telemetryHistory]
-            .reverse();
-
-
-    const chronologicalAI =
-        [...aiHistory]
-            .reverse();
 
 
     return (
 
         <>
 
-            <header className="header">
+            <header
+                className="header"
+            >
 
                 <div>
 
                     <h1>
-                        SENTINEL-X
+                        VIGIL-X
                     </h1>
 
+
                     <p>
-                        Intelligent Security Monitoring
+                        Versatile Intelligent Guard for IoT
+                        & Local eXecution
                     </p>
-
-                </div>
-
-
-                <div
-                    className={
-                        online
-                            ? "connection online"
-                            : "connection offline"
-                    }
-                >
-
-                    {
-                        online
-                            ? "SYSTEM ONLINE"
-                            : "SYSTEM OFFLINE"
-                    }
 
                 </div>
 
             </header>
 
 
-            <main className="container">
+            <main
+                className="container"
+            >
 
 
                 <section
@@ -313,7 +731,7 @@ export default function App() {
                 >
 
                     <StatusCard
-                        title="Niveau ESP32"
+                        title="Niveau système"
                         value={ruleText}
                         type={ruleType}
                     />
@@ -321,35 +739,15 @@ export default function App() {
 
                     <StatusCard
                         title="Analyse IA"
-                        value={
-                            ai
-                                ? ai.is_anomaly
-                                    ? "ANOMALIE"
-                                    : "NORMAL"
-                                : "--"
-                        }
+                        value={aiText}
                         type={aiType}
                     />
 
 
                     <StatusCard
-                        title="Score IA"
-                        value={
-                            formatNumber(
-                                ai?.anomaly_score,
-                                4
-                            )
-                        }
-                        type={aiType}
-                    />
-
-
-                    <StatusCard
-                        title="Device"
-                        value={
-                            telemetry?.device_id ??
-                            "--"
-                        }
+                        title="Device cible"
+                        value="ESP8266"
+                        type="normal"
                     />
 
                 </section>
@@ -358,17 +756,20 @@ export default function App() {
                 <section>
 
                     <h2>
-                        Capteurs
+                        Données capteurs
                     </h2>
 
 
-                    <div className="sensor-grid">
+                    <div
+                        className="sensor-grid"
+                    >
 
                         <SensorCard
                             title="Température"
                             value={
                                 formatNumber(
-                                    telemetry?.temperature
+                                    currentTelemetry.temperature,
+                                    1
                                 )
                             }
                             unit="°C"
@@ -379,7 +780,8 @@ export default function App() {
                             title="Humidité"
                             value={
                                 formatNumber(
-                                    telemetry?.humidity
+                                    currentTelemetry.humidity,
+                                    1
                                 )
                             }
                             unit="%"
@@ -389,7 +791,7 @@ export default function App() {
                         <SensorCard
                             title="Gaz"
                             value={
-                                telemetry?.gas
+                                currentTelemetry.gas
                             }
                         />
 
@@ -397,38 +799,25 @@ export default function App() {
                         <SensorCard
                             title="Baseline gaz"
                             value={
-                                telemetry?.gas_baseline
+                                currentTelemetry.gas_baseline
                             }
                         />
 
 
                         <SensorCard
-                            title="Delta gaz"
+                            title="Variation gaz"
                             value={
-                                formatNumber(
-                                    ai?.gas_delta,
-                                    0
-                                )
+                                currentAI?.gas_delta ??
+                                0
                             }
                         />
 
 
                         <SensorCard
-                            title="Ratio gaz"
+                            title="Présence PIR"
                             value={
-                                formatNumber(
-                                    ai?.gas_ratio,
-                                    3
-                                )
-                            }
-                        />
-
-
-                        <SensorCard
-                            title="PIR"
-                            value={
-                                telemetry?.pir
-                                    ? "MOUVEMENT"
+                                currentTelemetry.pir
+                                    ? "DÉTECTION"
                                     : "RAS"
                             }
                         />
@@ -437,9 +826,17 @@ export default function App() {
                         <SensorCard
                             title="Caméra"
                             value={
-                                telemetry?.camera
+                                currentTelemetry.camera
                                     ? "DÉTECTION"
                                     : "RAS"
+                            }
+                        />
+
+
+                        <SensorCard
+                            title="Niveau d'alerte"
+                            value={
+                                currentTelemetry.level
                             }
                         />
 
@@ -451,19 +848,23 @@ export default function App() {
                 <section>
 
                     <h2>
-                        Historique temps réel
+                        Évolution de la session
                     </h2>
 
 
-                    <div className="charts">
+                    <div
+                        className="charts"
+                    >
 
 
                         <SensorChart
 
                             title="Température °C"
 
+                            color="#fb7185"
+
                             labels={
-                                chronologicalTelemetry.map(
+                                telemetryHistory.map(
                                     item =>
                                         formatTime(
                                             item.received_at
@@ -472,7 +873,7 @@ export default function App() {
                             }
 
                             values={
-                                chronologicalTelemetry.map(
+                                telemetryHistory.map(
                                     item =>
                                         item.temperature
                                 )
@@ -485,8 +886,10 @@ export default function App() {
 
                             title="Humidité %"
 
+                            color="#38bdf8"
+
                             labels={
-                                chronologicalTelemetry.map(
+                                telemetryHistory.map(
                                     item =>
                                         formatTime(
                                             item.received_at
@@ -495,7 +898,7 @@ export default function App() {
                             }
 
                             values={
-                                chronologicalTelemetry.map(
+                                telemetryHistory.map(
                                     item =>
                                         item.humidity
                                 )
@@ -508,8 +911,10 @@ export default function App() {
 
                             title="Gaz"
 
+                            color="#fbbf24"
+
                             labels={
-                                chronologicalTelemetry.map(
+                                telemetryHistory.map(
                                     item =>
                                         formatTime(
                                             item.received_at
@@ -518,32 +923,9 @@ export default function App() {
                             }
 
                             values={
-                                chronologicalTelemetry.map(
+                                telemetryHistory.map(
                                     item =>
                                         item.gas
-                                )
-                            }
-
-                        />
-
-
-                        <SensorChart
-
-                            title="Score IA"
-
-                            labels={
-                                chronologicalAI.map(
-                                    item =>
-                                        formatTime(
-                                            item.received_at
-                                        )
-                                )
-                            }
-
-                            values={
-                                chronologicalAI.map(
-                                    item =>
-                                        item.anomaly_score
                                 )
                             }
 
@@ -557,12 +939,14 @@ export default function App() {
                 <section>
 
                     <h2>
-                        Dernières analyses IA
+                        Détections de la session
                     </h2>
+
 
                     <AiTable
                         results={
-                            aiHistory
+                            [...aiHistory]
+                                .reverse()
                         }
                     />
 
@@ -571,7 +955,7 @@ export default function App() {
 
                 <footer>
 
-                    Dernière mise à jour :
+                    Dashboard actualisé à :
 
                     {" "}
 

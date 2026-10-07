@@ -1,6 +1,16 @@
 import os
 import time
 
+from collections import (
+    defaultdict,
+    deque
+)
+
+from datetime import (
+    datetime,
+    timezone
+)
+
 import joblib
 import numpy as np
 
@@ -9,62 +19,101 @@ from pymongo import MongoClient
 
 
 # =====================================================
-# CONFIG
+# CONFIGURATION
 # =====================================================
 
-MONGO_URI = os.getenv("MONGO_URI")
+MONGO_URI = os.getenv(
+    "MONGO_URI"
+)
 
 MODEL_PATH = os.getenv(
     "MODEL_PATH",
     "/app/model/isolation_forest.joblib"
 )
 
-CHECK_INTERVAL = 1
-
-
-# =====================================================
-# VERIFICATIONS
-# =====================================================
 
 if not MONGO_URI:
+
     raise RuntimeError(
         "MONGO_URI est manquant."
     )
 
 
 # =====================================================
-# DEMARRAGE
+# PARAMETRES
 # =====================================================
 
-print("======================================")
-print(" SENTINEL-X - DETECTION IA")
-print("======================================")
-print()
+# Moyenne glissante MQ-2
+GAS_WINDOW_SIZE = 5
 
 
-# =====================================================
-# ATTENTE DU MODELE
-# =====================================================
+# Forte hausse nécessaire avant que le gaz
+# influence réellement l'Isolation Forest.
+GAS_DELTA_THRESHOLD = 700.0
 
-while not os.path.exists(MODEL_PATH):
+GAS_RATIO_THRESHOLD = 1.35
 
-    print("[AI] Modele introuvable.")
-    print("[AI] Lance d'abord l'entrainement.")
 
-    time.sleep(5)
+# Nombre d'anomalies consécutives avant
+# ACTIVITE SUSPECTE.
+ANOMALY_CONFIRMATION_COUNT = 2
 
 
 # =====================================================
-# CHARGEMENT DU MODELE
+# ETAT PAR DEVICE
 # =====================================================
 
-model = joblib.load(MODEL_PATH)
+gas_history = defaultdict(
 
-print("[AI] Modele charge.")
+    lambda: deque(
+        maxlen=GAS_WINDOW_SIZE
+    )
+
+)
+
+
+anomaly_streak = defaultdict(
+    int
+)
 
 
 # =====================================================
-# CONNEXION MONGODB
+# MODELE
+# =====================================================
+
+while True:
+
+    try:
+
+        model = joblib.load(
+            MODEL_PATH
+        )
+
+
+        print(
+            "[AI] Modele charge.",
+            flush=True
+        )
+
+
+        break
+
+    except Exception as error:
+
+        print(
+            "[AI] Impossible de charger le modele : "
+            f"{error}",
+            flush=True
+        )
+
+
+        time.sleep(
+            5
+        )
+
+
+# =====================================================
+# MONGODB
 # =====================================================
 
 while True:
@@ -76,41 +125,160 @@ while True:
             serverSelectionTimeoutMS=5000
         )
 
-        client.admin.command("ping")
 
-        print("[AI] MongoDB connecte.")
+        client.admin.command(
+            "ping"
+        )
+
+
+        print(
+            "[AI] MongoDB connecte.",
+            flush=True
+        )
+
 
         break
 
     except Exception as error:
 
         print(
-            "[AI] MongoDB indisponible :",
-            error
+            "[AI] MongoDB indisponible : "
+            f"{error}",
+            flush=True
         )
 
-        print(
-            "[AI] Nouvelle tentative dans 5 secondes..."
+
+        time.sleep(
+            5
         )
 
-        time.sleep(5)
 
+db = client[
+    "sentinel"
+]
 
-db = client["sentinel"]
+telemetry = db[
+    "telemetry"
+]
 
-telemetry = db["telemetry"]
-ai_results = db["ai_results"]
+ai_results = db[
+    "ai_results"
+]
 
 
 # =====================================================
-# RETROUVER LA DERNIERE TELEMETRIE DEJA ANALYSEE
+# HELPERS
+# =====================================================
+
+def safe_float(
+    value,
+    default=0.0
+):
+
+    try:
+
+        return float(
+            value
+        )
+
+    except (
+        TypeError,
+        ValueError
+    ):
+
+        return default
+
+
+def safe_bool(
+    value
+):
+
+    return bool(
+        value
+    )
+
+
+def normalize_gas_for_ai(
+    gas_value,
+    gas_baseline
+):
+
+    if gas_baseline <= 0:
+
+        return (
+            None,
+            None,
+            False
+        )
+
+
+    gas_delta = (
+        gas_value -
+        gas_baseline
+    )
+
+
+    gas_ratio = (
+        gas_value /
+        gas_baseline
+    )
+
+
+    significant_gas_rise = (
+
+        gas_delta >=
+        GAS_DELTA_THRESHOLD
+
+        or
+
+        gas_ratio >=
+        GAS_RATIO_THRESHOLD
+
+    )
+
+
+    # -------------------------------------------------
+    # Fluctuation classique MQ-2
+    # -------------------------------------------------
+
+    if not significant_gas_rise:
+
+        return (
+            0.0,
+            1.0,
+            False
+        )
+
+
+    # -------------------------------------------------
+    # Forte hausse réelle
+    # -------------------------------------------------
+
+    return (
+        gas_delta,
+        gas_ratio,
+        True
+    )
+
+
+# =====================================================
+# REPRISE APRES REDEMARRAGE
 # =====================================================
 
 last_processed_id = None
 
+
 last_result = ai_results.find_one(
-    sort=[("_id", -1)]
+
+    sort=[
+        (
+            "_id",
+            -1
+        )
+    ]
+
 )
+
 
 if last_result:
 
@@ -118,24 +286,26 @@ if last_result:
         "telemetry_id"
     )
 
-    try:
 
-        last_processed_id = ObjectId(
-            telemetry_id
-        )
+    if telemetry_id:
 
-        print(
-            "[AI] Reprise apres telemetry :",
-            telemetry_id
-        )
+        try:
 
-    except Exception:
+            last_processed_id = ObjectId(
+                telemetry_id
+            )
 
-        print(
-            "[AI] Ancien telemetry_id invalide."
-        )
 
-        last_processed_id = None
+            print(
+                "[AI] Reprise apres telemetry : "
+                f"{last_processed_id}",
+                flush=True
+            )
+
+
+        except Exception:
+
+            last_processed_id = None
 
 
 # =====================================================
@@ -145,155 +315,219 @@ if last_result:
 if last_processed_id is None:
 
     latest_telemetry = telemetry.find_one(
-        sort=[("_id", -1)]
+
+        sort=[
+            (
+                "_id",
+                -1
+            )
+        ]
+
     )
+
 
     if latest_telemetry:
 
-        last_processed_id = latest_telemetry["_id"]
-
-        print(
-            "[AI] Premiere execution."
-        )
-
-        print(
-            "[AI] Les anciennes telemetries "
-            "ne seront pas retraitees."
-        )
-
-        print(
-            "[AI] Demarrage apres :",
-            str(last_processed_id)
+        last_processed_id = (
+            latest_telemetry[
+                "_id"
+            ]
         )
 
 
-print()
-print("[AI] Surveillance active.")
-print()
+        print(
+            "[AI] Demarrage apres telemetry existante : "
+            f"{last_processed_id}",
+            flush=True
+        )
 
 
 # =====================================================
-# ANALYSE D'UNE TELEMETRIE
+# ANALYSE
 # =====================================================
 
-def analyze(doc):
+def analyze(
+    document
+):
 
     telemetry_id = str(
-        doc["_id"]
+        document[
+            "_id"
+        ]
     )
 
-    # -------------------------------------------------
-    # EVITER LES DOUBLONS
-    # -------------------------------------------------
 
-    existing_result = ai_results.find_one(
+    # =================================================
+    # ANTI-DOUBLON
+    # =================================================
+
+    existing = ai_results.find_one(
         {
             "telemetry_id":
                 telemetry_id
         }
     )
 
-    if existing_result:
 
-        print(
-            "[AI] Telemetry deja analysee :",
-            telemetry_id
-        )
+    if existing:
 
         return
 
 
-    # -------------------------------------------------
-    # RECUPERATION DES DONNEES
-    # -------------------------------------------------
+    # =================================================
+    # DONNEES
+    # =================================================
 
-    try:
+    device_id = document.get(
+        "device_id",
+        "unknown"
+    )
 
-        temperature = float(
-            doc["temperature"]
+
+    temperature = safe_float(
+        document.get(
+            "temperature"
         )
+    )
 
-        humidity = float(
-            doc["humidity"]
+
+    humidity = safe_float(
+        document.get(
+            "humidity"
         )
+    )
 
-        gas = float(
-            doc["gas"]
+
+    gas_raw = safe_float(
+        document.get(
+            "gas"
         )
+    )
 
-        gas_baseline = float(
-            doc["gas_baseline"]
+
+    gas_baseline = safe_float(
+        document.get(
+            "gas_baseline"
         )
+    )
 
-        pir = int(
-            bool(
-                doc.get(
-                    "pir",
-                    False
-                )
-            )
+
+    pir = safe_bool(
+        document.get(
+            "pir"
         )
+    )
 
-        camera = int(
-            bool(
-                doc.get(
-                    "camera",
-                    False
-                )
-            )
+
+    camera = safe_bool(
+        document.get(
+            "camera"
         )
+    )
 
-    except (
-        KeyError,
-        TypeError,
-        ValueError
-    ) as error:
 
-        print(
-            "[AI] Telemetrie invalide :",
-            telemetry_id,
-            error
+    rule_level = int(
+        document.get(
+            "level",
+            0
         )
+    )
 
-        return
-
-
-    # -------------------------------------------------
-    # VERIFICATION BASELINE GAZ
-    # -------------------------------------------------
 
     if gas_baseline <= 0:
 
         print(
-            "[AI] Baseline gaz invalide :",
-            telemetry_id
+            "[AI] Baseline gaz invalide : "
+            f"{telemetry_id}",
+            flush=True
         )
 
         return
+
+
+    # =================================================
+    # MOYENNE GLISSANTE DU GAZ
+    # =================================================
+
+    gas_history[
+        device_id
+    ].append(
+        gas_raw
+    )
+
+
+    gas_smoothed = (
+
+        sum(
+            gas_history[
+                device_id
+            ]
+        )
+
+        /
+
+        len(
+            gas_history[
+                device_id
+            ]
+        )
+
+    )
+
+
+    # =================================================
+    # DELTA REEL
+    # =================================================
+
+    raw_gas_delta = (
+        gas_smoothed -
+        gas_baseline
+    )
+
+
+    raw_gas_ratio = (
+        gas_smoothed /
+        gas_baseline
+    )
+
+
+    # =================================================
+    # GAZ POUR IA
+    # =================================================
+
+    (
+        gas_delta_ai,
+        gas_ratio_ai,
+        gas_significant
+
+    ) = normalize_gas_for_ai(
+
+        gas_smoothed,
+        gas_baseline
+
+    )
 
 
     # =================================================
     # FEATURES
     # =================================================
 
-    gas_delta = (
-        gas - gas_baseline
-    )
-
-    gas_ratio = (
-        gas / gas_baseline
-    )
-
-
-    X = np.array(
+    features = np.array(
         [
             [
                 temperature,
                 humidity,
-                gas_delta,
-                gas_ratio,
-                pir,
-                camera
+
+                gas_delta_ai,
+                gas_ratio_ai,
+
+                int(
+                    pir
+                ),
+
+                int(
+                    camera
+                )
             ]
         ],
         dtype=float
@@ -301,19 +535,55 @@ def analyze(doc):
 
 
     # =================================================
-    # PREDICTION IA
+    # ISOLATION FOREST
     # =================================================
 
-    prediction = int(
-        model.predict(X)[0]
+    prediction = model.predict(
+        features
+    )[0]
+
+
+    anomaly_score = float(
+
+        model.decision_function(
+            features
+        )[0]
+
     )
 
-    decision_score = float(
-        model.decision_function(X)[0]
-    )
 
-    is_anomaly = (
+    model_anomaly = (
         prediction == -1
+    )
+
+
+    # =================================================
+    # CONFIRMATION TEMPORELLE
+    # =================================================
+
+    if model_anomaly:
+
+        anomaly_streak[
+            device_id
+        ] += 1
+
+    else:
+
+        anomaly_streak[
+            device_id
+        ] = 0
+
+
+    confirmed_anomaly = (
+
+        anomaly_streak[
+            device_id
+        ]
+
+        >=
+
+        ANOMALY_CONFIRMATION_COUNT
+
     )
 
 
@@ -327,9 +597,7 @@ def analyze(doc):
             telemetry_id,
 
         "device_id":
-            doc.get(
-                "device_id"
-            ),
+            device_id,
 
         "temperature":
             temperature,
@@ -337,48 +605,113 @@ def analyze(doc):
         "humidity":
             humidity,
 
+        # ---------------------------------------------
+        # Donnée capteur réelle
+        # ---------------------------------------------
+
         "gas":
-            gas,
+            gas_raw,
+
+        "gas_smoothed":
+            round(
+                gas_smoothed,
+                2
+            ),
 
         "gas_baseline":
             gas_baseline,
 
+        # ---------------------------------------------
+        # Variation réelle
+        # ---------------------------------------------
+
         "gas_delta":
-            gas_delta,
-
-        "gas_ratio":
-            gas_ratio,
-
-        "pir":
-            bool(pir),
-
-        "camera":
-            bool(camera),
-
-        # Niveau calcule par l'ESP32.
-        # Conserve pour comparaison.
-        # Il n'est PAS utilise comme feature IA.
-        "rule_level":
-            doc.get(
-                "level"
+            round(
+                raw_gas_delta,
+                2
             ),
 
-        "is_anomaly":
-            is_anomaly,
+        "gas_ratio":
+            round(
+                raw_gas_ratio,
+                6
+            ),
+
+        # ---------------------------------------------
+        # Gaz transmis au modèle
+        # ---------------------------------------------
+
+        "gas_delta_ai":
+            round(
+                gas_delta_ai,
+                2
+            ),
+
+        "gas_ratio_ai":
+            round(
+                gas_ratio_ai,
+                6
+            ),
+
+        "gas_significant":
+            bool(
+                gas_significant
+            ),
+
+        # ---------------------------------------------
+        # Autres signaux
+        # ---------------------------------------------
+
+        "pir":
+            pir,
+
+        "camera":
+            camera,
+
+        "rule_level":
+            rule_level,
+
+        # ---------------------------------------------
+        # IA
+        # ---------------------------------------------
 
         "anomaly_score":
-            decision_score,
+            anomaly_score,
+
+        "model_anomaly":
+            bool(
+                model_anomaly
+            ),
+
+        "anomaly_streak":
+            anomaly_streak[
+                device_id
+            ],
+
+        "is_anomaly":
+            bool(
+                confirmed_anomaly
+            ),
+
+        # ---------------------------------------------
+        # Dates
+        # ---------------------------------------------
 
         "received_at":
-            doc.get(
-                "received_at"
+            document.get(
+                "received_at",
+                datetime.now(
+                    timezone.utc
+                )
+            ),
+
+        "analyzed_at":
+            datetime.now(
+                timezone.utc
             )
+
     }
 
-
-    # =================================================
-    # ENREGISTREMENT
-    # =================================================
 
     ai_results.insert_one(
         result
@@ -386,144 +719,146 @@ def analyze(doc):
 
 
     # =================================================
-    # LOGS
+    # LOG
     # =================================================
 
-    print()
-    print(
-        "[AI] Telemetry :",
-        telemetry_id
-    )
+    state = (
 
-    print(
-        "[AI] Temp :",
-        temperature
-    )
+        "ACTIVITE SUSPECTE"
 
-    print(
-        "[AI] Humidite :",
-        humidity
-    )
+        if confirmed_anomaly
 
-    print(
-        "[AI] Gaz :",
-        gas
-    )
+        else "NORMAL"
 
-    print(
-        "[AI] Baseline gaz :",
-        gas_baseline
-    )
-
-    print(
-        "[AI] Delta gaz :",
-        round(
-            gas_delta,
-            2
-        )
-    )
-
-    print(
-        "[AI] Ratio gaz :",
-        round(
-            gas_ratio,
-            4
-        )
-    )
-
-    print(
-        "[AI] PIR :",
-        pir
-    )
-
-    print(
-        "[AI] Camera :",
-        camera
-    )
-
-    print(
-        "[AI] Niveau regles :",
-        doc.get(
-            "level"
-        )
-    )
-
-    print(
-        "[AI] Score :",
-        round(
-            decision_score,
-            4
-        )
     )
 
 
-    if is_anomaly:
+    gas_state = (
 
-        print(
-            "[AI] >>> ANOMALIE DETECTEE <<<"
-        )
+        "IMPORTANT"
 
-    else:
+        if gas_significant
 
-        print(
-            "[AI] Etat normal."
-        )
+        else "IGNORE"
+
+    )
+
+
+    print(
+        (
+            f"[AI] {device_id} | "
+
+            f"temp={temperature:.1f} | "
+
+            f"hum={humidity:.1f} | "
+
+            f"gas_raw={gas_raw:.0f} | "
+
+            f"gas_avg={gas_smoothed:.1f} | "
+
+            f"delta={raw_gas_delta:.1f} | "
+
+            f"ratio={raw_gas_ratio:.3f} | "
+
+            f"gas_ai={gas_state} | "
+
+            f"model_anomaly={model_anomaly} | "
+
+            f"streak={anomaly_streak[device_id]} | "
+
+            f"etat={state}"
+        ),
+        flush=True
+    )
 
 
 # =====================================================
-# BOUCLE TEMPS REEL
+# BOUCLE PRINCIPALE
 # =====================================================
+
+print(
+    "[AI] Surveillance active.",
+    flush=True
+)
+
 
 while True:
 
     try:
 
-        # ---------------------------------------------
-        # RECUPERER TOUTES LES NOUVELLES TELEMETRIES
-        # ---------------------------------------------
-
         query = {}
+
 
         if last_processed_id is not None:
 
             query = {
+
                 "_id": {
+
                     "$gt":
                         last_processed_id
+
                 }
+
             }
 
 
         new_documents = list(
+
             telemetry
-            .find(query)
-            .sort("_id", 1)
+                .find(
+                    query
+                )
+                .sort(
+                    "_id",
+                    1
+                )
+
         )
 
 
-        # ---------------------------------------------
-        # TRAITEMENT DANS L'ORDRE
-        # ---------------------------------------------
+        for document in new_documents:
 
-        for doc in new_documents:
+            try:
 
-            analyze(doc)
+                analyze(
+                    document
+                )
 
-            # Même si la donnée est invalide,
-            # on avance pour ne pas bloquer la boucle.
-            last_processed_id = (
-                doc["_id"]
-            )
+
+            except Exception as error:
+
+                print(
+                    "[AI] Erreur analyse telemetry "
+                    f"{document.get('_id')} : "
+                    f"{error}",
+                    flush=True
+                )
+
+
+            finally:
+
+                last_processed_id = (
+                    document[
+                        "_id"
+                    ]
+                )
+
+
+        time.sleep(
+            0.5
+        )
 
 
     except Exception as error:
 
         print(
-            "[AI] Erreur :",
-            error
+            "[AI] Erreur boucle principale : "
+            f"{error}",
+            flush=True
         )
 
 
-    time.sleep(
-        CHECK_INTERVAL
-    )
+        time.sleep(
+            2
+        )

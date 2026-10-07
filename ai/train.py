@@ -1,16 +1,18 @@
 import os
+from pathlib import Path
 
 import joblib
 import numpy as np
 
 from pymongo import MongoClient
+
 from sklearn.ensemble import IsolationForest
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
 
 # =====================================================
-# CONFIG
+# CONFIGURATION
 # =====================================================
 
 MONGO_URI = os.getenv(
@@ -23,10 +25,6 @@ MODEL_PATH = os.getenv(
 )
 
 
-# =====================================================
-# VERIFICATIONS
-# =====================================================
-
 if not MONGO_URI:
     raise RuntimeError(
         "MONGO_URI est manquant."
@@ -34,196 +32,289 @@ if not MONGO_URI:
 
 
 # =====================================================
-# CONNEXION MONGODB
+# PARAMETRES GAZ
 # =====================================================
 
-print("======================================")
-print(" SENTINEL-X - ENTRAINEMENT IA")
-print("======================================")
-print()
+# Le gaz n'est réellement utilisé par l'IA
+# que lorsqu'il dépasse fortement sa baseline.
 
-print("[AI] Connexion a MongoDB...")
+GAS_DELTA_THRESHOLD = 700.0
+
+GAS_RATIO_THRESHOLD = 1.35
+
+
+# =====================================================
+# CONNEXION MONGODB
+# =====================================================
 
 client = MongoClient(
     MONGO_URI,
     serverSelectionTimeoutMS=5000
 )
 
-client.admin.command("ping")
 
-db = client["sentinel"]
-telemetry = db["telemetry"]
+client.admin.command(
+    "ping"
+)
+
+
+print(
+    "[TRAIN] MongoDB connecte.",
+    flush=True
+)
+
+
+db = client[
+    "sentinel"
+]
+
+telemetry = db[
+    "telemetry"
+]
 
 
 # =====================================================
-# CHARGEMENT DES DONNEES NORMALES
+# HELPERS
+# =====================================================
+
+def safe_float(
+    value,
+    default=0.0
+):
+
+    try:
+
+        return float(
+            value
+        )
+
+    except (
+        TypeError,
+        ValueError
+    ):
+
+        return default
+
+
+def normalize_gas_for_ai(
+    gas_value,
+    gas_baseline
+):
+
+    if gas_baseline <= 0:
+
+        return (
+            None,
+            None,
+            False
+        )
+
+
+    gas_delta = (
+        gas_value -
+        gas_baseline
+    )
+
+
+    gas_ratio = (
+        gas_value /
+        gas_baseline
+    )
+
+
+    significant_gas_rise = (
+
+        gas_delta >=
+        GAS_DELTA_THRESHOLD
+
+        or
+
+        gas_ratio >=
+        GAS_RATIO_THRESHOLD
+
+    )
+
+
+    # -------------------------------------------------
+    # Variation normale :
+    # gaz neutralisé pour le modèle.
+    # -------------------------------------------------
+
+    if not significant_gas_rise:
+
+        return (
+            0.0,
+            1.0,
+            False
+        )
+
+
+    # -------------------------------------------------
+    # Forte hausse :
+    # le modèle voit réellement le gaz.
+    # -------------------------------------------------
+
+    return (
+        gas_delta,
+        gas_ratio,
+        True
+    )
+
+
+# =====================================================
+# RECUPERATION DES DONNEES NORMALES
 # =====================================================
 
 documents = list(
+
     telemetry.find(
         {
             "level": 0
         }
     )
+
 )
+
 
 print(
-    f"[AI] Mesures normales trouvees : "
-    f"{len(documents)}"
+    f"[TRAIN] Mesures normales trouvees : {len(documents)}",
+    flush=True
 )
 
-if len(documents) < 50:
-    raise RuntimeError(
-        "Pas assez de donnees normales "
-        "pour entrainer le modele."
-    )
-
-
-# =====================================================
-# CREATION DES FEATURES
-# =====================================================
 
 features = []
 
 ignored_documents = 0
 
-for doc in documents:
+gas_significant_count = 0
 
-    try:
-        temperature = float(
-            doc["temperature"]
+
+# =====================================================
+# PREPARATION DATASET
+# =====================================================
+
+for document in documents:
+
+    temperature = safe_float(
+        document.get(
+            "temperature"
         )
+    )
 
-        humidity = float(
-            doc["humidity"]
+
+    humidity = safe_float(
+        document.get(
+            "humidity"
         )
+    )
 
-        gas = float(
-            doc["gas"]
+
+    gas = safe_float(
+        document.get(
+            "gas"
         )
+    )
 
-        gas_baseline = float(
-            doc["gas_baseline"]
+
+    gas_baseline = safe_float(
+        document.get(
+            "gas_baseline"
         )
+    )
 
-        pir = int(
-            bool(
-                doc.get(
-                    "pir",
-                    False
-                )
-            )
-        )
 
-        camera = int(
-            bool(
-                doc.get(
-                    "camera",
-                    False
-                )
-            )
-        )
+    if gas_baseline <= 0:
 
-        # Evite une division par zero
-        if gas_baseline <= 0:
-            ignored_documents += 1
-            continue
-
-        gas_delta = (
-            gas - gas_baseline
-        )
-
-        gas_ratio = (
-            gas / gas_baseline
-        )
-
-        features.append(
-            [
-                temperature,
-                humidity,
-                gas_delta,
-                gas_ratio,
-                pir,
-                camera
-            ]
-        )
-
-    except (
-        KeyError,
-        TypeError,
-        ValueError
-    ):
         ignored_documents += 1
 
+        continue
+
+
+    gas_delta_ai, gas_ratio_ai, significant = (
+        normalize_gas_for_ai(
+            gas,
+            gas_baseline
+        )
+    )
+
+
+    if significant:
+
+        gas_significant_count += 1
+
+
+    pir = int(
+        bool(
+            document.get(
+                "pir",
+                False
+            )
+        )
+    )
+
+
+    camera = int(
+        bool(
+            document.get(
+                "camera",
+                False
+            )
+        )
+    )
+
+
+    features.append(
+        [
+            temperature,
+            humidity,
+            gas_delta_ai,
+            gas_ratio_ai,
+            pir,
+            camera
+        ]
+    )
+
 
 # =====================================================
-# DATASET NUMPY
+# VALIDATION
 # =====================================================
+
+if len(
+    features
+) < 50:
+
+    raise RuntimeError(
+        "Pas assez de mesures normales pour entrainer le modele."
+    )
+
 
 X = np.array(
     features,
     dtype=float
 )
 
+
 print(
-    "[AI] Dimensions dataset :",
-    X.shape
+    f"[TRAIN] Dimensions dataset : {X.shape}",
+    flush=True
 )
 
+
 print(
-    "[AI] Documents ignores :",
-    ignored_documents
+    f"[TRAIN] Documents ignores : {ignored_documents}",
+    flush=True
 )
 
-if len(X) < 50:
-    raise RuntimeError(
-        "Pas assez de donnees exploitables "
-        "apres nettoyage."
-    )
-
-
-# =====================================================
-# INFORMATIONS DATASET
-# =====================================================
-
-print()
-print("[AI] Features utilisees :")
-print("     1. temperature")
-print("     2. humidity")
-print("     3. gas_delta")
-print("     4. gas_ratio")
-print("     5. pir")
-print("     6. camera")
-
-print()
 
 print(
-    "[AI] Gas delta moyen :",
-    round(
-        float(
-            np.mean(
-                X[:, 2]
-            )
-        ),
-        2
-    )
-)
-
-print(
-    "[AI] Gas ratio moyen :",
-    round(
-        float(
-            np.mean(
-                X[:, 3]
-            )
-        ),
-        4
-    )
+    "[TRAIN] Fortes variations gaz dans dataset normal : "
+    f"{gas_significant_count}",
+    flush=True
 )
 
 
 # =====================================================
-# PIPELINE IA
+# PIPELINE
 # =====================================================
 
 model = Pipeline(
@@ -232,17 +323,13 @@ model = Pipeline(
             "scaler",
             StandardScaler()
         ),
+
         (
             "isolation_forest",
+
             IsolationForest(
                 n_estimators=300,
-
-                # Le modele apprend uniquement
-                # sur les situations normales.
-                # On reste prudent sur le taux
-                # d'anomalies internes attendu.
                 contamination=0.03,
-
                 random_state=42,
                 n_jobs=-1
             )
@@ -255,25 +342,15 @@ model = Pipeline(
 # ENTRAINEMENT
 # =====================================================
 
-print()
-print("[AI] Entrainement en cours...")
-
 model.fit(
     X
 )
 
-print(
-    "[AI] Entrainement termine."
-)
-
-
-# =====================================================
-# EVALUATION SUR DATASET D'ENTRAINEMENT
-# =====================================================
 
 predictions = model.predict(
     X
 )
+
 
 normal_count = int(
     np.sum(
@@ -281,21 +358,29 @@ normal_count = int(
     )
 )
 
+
 anomaly_count = int(
     np.sum(
         predictions == -1
     )
 )
 
-print()
-print(
-    "[AI] Normaux sur dataset :",
-    normal_count
-)
 
 print(
-    "[AI] Anomalies internes :",
-    anomaly_count
+    "[TRAIN] Entrainement termine.",
+    flush=True
+)
+
+
+print(
+    f"[TRAIN] Normaux sur dataset : {normal_count}",
+    flush=True
+)
+
+
+print(
+    f"[TRAIN] Anomalies internes : {anomaly_count}",
+    flush=True
 )
 
 
@@ -303,25 +388,24 @@ print(
 # SAUVEGARDE
 # =====================================================
 
-os.makedirs(
-    os.path.dirname(
-        MODEL_PATH
-    ),
+model_path = Path(
+    MODEL_PATH
+)
+
+
+model_path.parent.mkdir(
+    parents=True,
     exist_ok=True
 )
 
+
 joblib.dump(
     model,
-    MODEL_PATH
+    model_path
 )
 
-print()
+
 print(
-    "[AI] Modele sauvegarde :",
-    MODEL_PATH
+    f"[TRAIN] Modele sauvegarde : {MODEL_PATH}",
+    flush=True
 )
-
-print()
-print("======================================")
-print(" ENTRAINEMENT TERMINE")
-print("======================================")
