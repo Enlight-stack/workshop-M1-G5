@@ -1,10 +1,42 @@
 #include <DHT.h>
 #include <WiFi.h>
+#include <WiFiClientSecure.h>
 #include <PubSubClient.h>
 
 // =====================================================
-// SENTINEL-X - WOKWI + MQTT PUBLIC
+// VIGIL-X - WOKWI + MQTT TLS
 // =====================================================
+
+// =====================================================
+// CERTIFICAT CA MOSQUITTO
+// =====================================================
+
+const char MOSQUITTO_CA_CERT[] PROGMEM = R"EOF(
+-----BEGIN CERTIFICATE-----
+MIIEAzCCAuugAwIBAgIUBY1hlCGvdj4NhBXkZ/uLUZNILAwwDQYJKoZIhvcNAQEL
+BQAwgZAxCzAJBgNVBAYTAkdCMRcwFQYDVQQIDA5Vbml0ZWQgS2luZ2RvbTEOMAwG
+A1UEBwwFRGVyYnkxEjAQBgNVBAoMCU1vc3F1aXR0bzELMAkGA1UECwwCQ0ExFjAU
+BgNVBAMMDW1vc3F1aXR0by5vcmcxHzAdBgkqhkiG9w0BCQEWEHJvZ2VyQGF0Y2hv
+by5vcmcwHhcNMjAwNjA5MTEwNjM5WhcNMzAwNjA3MTEwNjM5WjCBkDELMAkGA1UE
+BhMCR0IxFzAVBgNVBAgMDlVuaXRlZCBLaW5nZG9tMQ4wDAYDVQQHDAVEZXJieTES
+MBAGA1UECgwJTW9zcXVpdHRvMQswCQYDVQQLDAJDQTEWMBQGA1UEAwwNbW9zcXVp
+dHRvLm9yZzEfMB0GCSqGSIb3DQEJARYQcm9nZXJAYXRjaG9vLm9yZzCCASIwDQYJ
+KoZIhvcNAQEBBQADggEPADCCAQoCggEBAME0HKmIzfTOwkKLT3THHe+ObdizamPg
+UZmD64Tf3zJdNeYGYn4CEXbyP6fy3tWc8S2boW6dzrH8SdFf9uo320GJA9B7U1FW
+Te3xda/Lm3JFfaHjkWw7jBwcauQZjpGINHapHRlpiCZsquAthOgxW9SgDgYlGzEA
+s06pkEFiMw+qDfLo/sxFKB6vQlFekMeCymjLCbNwPJyqyhFmPWwio/PDMruBTzPH
+3cioBnrJWKXc3OjXdLGFJOfj7pP0j/dr2LH72eSvv3PQQFl90CZPFhrCUcRHSSxo
+E6yjGOdnz7f6PveLIB574kQORwt8ePn0yidrTC1ictikED3nHYhMUOUCAwEAAaNT
+MFEwHQYDVR0OBBYEFPVV6xBUFPiGKDyo5V3+Hbh4N9YSMB8GA1UdIwQYMBaAFPVV
+6xBUFPiGKDyo5V3+Hbh4N9YSMA8GA1UdEwEB/wQFMAMBAf8wDQYJKoZIhvcNAQEL
+BQADggEBAGa9kS21N70ThM6/Hj9D7mbVxKLBjVWe2TPsGfbl3rEDfZ+OKRZ2j6AC
+6r7jb4TZO3dzF2p6dgbrlU71Y/4K0TdzIjRj3cQ3KSm41JvUQ0hZ/c04iGDg/xWf
++pp58nfPAYwuerruPNWmlStWAXf0UTqRtg4hQDWBuUFDJTuWuuBvEXudz74eh/wK
+sMwfu1HFvjy5Z0iMDU8PUDepjVolOCue9ashlS4EB5IECdSR2TItnAIiIwimx839
+LdUdRudafMu5T5Xma182OC0/u/xRlEm+tvKGGmfFcN0piqVl8OrSPBgIlb+1IKJE
+m/XriWr/Cq4h/JfB7NTsezVslgkBaoU=
+-----END CERTIFICATE-----
+)EOF";
 
 // ===============================
 // BROCHES
@@ -37,17 +69,24 @@ const char *WIFI_SSID = "Wokwi-GUEST";
 const char *WIFI_PASSWORD = "";
 
 // ===============================
-// MQTT PUBLIC
+// MQTT TLS
 // ===============================
 
 const char *MQTT_SERVER = "test.mosquitto.org";
-const int MQTT_PORT = 1883;
+const int MQTT_PORT = 8883;
 
-const char *MQTT_CLIENT_ID = "sentinel-x-g5-esp32-001";
-const char *MQTT_TOPIC = "sentinel-x-g5-2026/sensors";
+const char *MQTT_CLIENT_ID =
+    "vigil-x-g5-esp32-wokwi-2026-a7f3";
 
-WiFiClient wifiClient;
-PubSubClient mqttClient(wifiClient);
+const char *MQTT_TOPIC =
+    "sentinel-x-g5-2026/sensors";
+
+// ===============================
+// CLIENT TLS
+// ===============================
+
+WiFiClientSecure secureClient;
+PubSubClient mqttClient(secureClient);
 
 // ===============================
 // SEUILS TEMPERATURE
@@ -73,12 +112,8 @@ const float HUM_CRITICAL_HIGH = 85.0;
 // SEUILS GAZ
 // ===============================
 
-// Ecart par rapport à la baseline
-
 const int GAS_DELTA_WARNING = 400;
 const int GAS_DELTA_CRITICAL = 800;
-
-// Seuils absolus
 
 const int GAS_ABSOLUTE_WARNING = 3000;
 const int GAS_ABSOLUTE_CRITICAL = 3500;
@@ -143,6 +178,23 @@ void connectWiFi()
 }
 
 // =====================================================
+// TLS
+// =====================================================
+
+void configureTLS()
+{
+    Serial.println("Configuration TLS...");
+
+    secureClient.setCACert(
+        MOSQUITTO_CA_CERT);
+
+    Serial.println(
+        "Certificat CA Mosquitto charge.");
+
+    Serial.println();
+}
+
+// =====================================================
 // MQTT
 // =====================================================
 
@@ -150,13 +202,16 @@ void connectMQTT()
 {
     while (!mqttClient.connected())
     {
-        Serial.print("Connexion MQTT... ");
+        Serial.print(
+            "Connexion MQTT TLS... ");
 
-        if (mqttClient.connect(MQTT_CLIENT_ID))
+        if (
+            mqttClient.connect(
+                MQTT_CLIENT_ID))
         {
             Serial.println("OK");
 
-            Serial.print("Broker : ");
+            Serial.print("Broker TLS : ");
             Serial.print(MQTT_SERVER);
             Serial.print(":");
             Serial.println(MQTT_PORT);
@@ -164,12 +219,18 @@ void connectMQTT()
             Serial.print("Topic : ");
             Serial.println(MQTT_TOPIC);
 
+            Serial.println(
+                "Transport : MQTTS / TLS");
+
             Serial.println();
         }
         else
         {
-            Serial.print("ECHEC - code : ");
-            Serial.println(mqttClient.state());
+            Serial.print(
+                "ECHEC MQTT - code : ");
+
+            Serial.println(
+                mqttClient.state());
 
             Serial.println(
                 "Nouvelle tentative dans 2 secondes...");
@@ -226,21 +287,15 @@ int calculateThreatLevel(
     // NIVEAU 2 : CRITIQUE
     // ==========================================
 
-    // Intrusion confirmée : PIR + caméra
-
     if (pir == HIGH && camera == 1)
     {
         return 2;
     }
 
-    // Gaz critique absolu
-
     if (gasValue >= GAS_ABSOLUTE_CRITICAL)
     {
         return 2;
     }
-
-    // Gaz critique relatif
 
     if (
         calibrationFinished &&
@@ -248,8 +303,6 @@ int calculateThreatLevel(
     {
         return 2;
     }
-
-    // Température critique
 
     if (!isnan(temperature))
     {
@@ -260,8 +313,6 @@ int calculateThreatLevel(
             return 2;
         }
     }
-
-    // Humidité critique
 
     if (!isnan(humidity))
     {
@@ -277,28 +328,20 @@ int calculateThreatLevel(
     // NIVEAU 1 : WARNING
     // ==========================================
 
-    // PIR seul
-
     if (pir == HIGH)
     {
         return 1;
     }
-
-    // Caméra seule
 
     if (camera == 1)
     {
         return 1;
     }
 
-    // Gaz warning absolu
-
     if (gasValue >= GAS_ABSOLUTE_WARNING)
     {
         return 1;
     }
-
-    // Gaz warning relatif
 
     if (
         calibrationFinished &&
@@ -306,8 +349,6 @@ int calculateThreatLevel(
     {
         return 1;
     }
-
-    // Température hors plage normale
 
     if (!isnan(temperature))
     {
@@ -319,8 +360,6 @@ int calculateThreatLevel(
         }
     }
 
-    // Humidité hors plage normale
-
     if (!isnan(humidity))
     {
         if (
@@ -330,10 +369,6 @@ int calculateThreatLevel(
             return 1;
         }
     }
-
-    // ==========================================
-    // NIVEAU 0 : NORMAL
-    // ==========================================
 
     return 0;
 }
@@ -354,7 +389,7 @@ void printThreatMessage()
     if (threatLevel == 0)
     {
         Serial.println("==============================");
-        Serial.println("          SENTINEL-X");
+        Serial.println("            VIGIL-X");
         Serial.println("ETAT : NORMAL");
         Serial.println("NIVEAU : 0");
         Serial.println("LED VERTE");
@@ -364,7 +399,7 @@ void printThreatMessage()
     else if (threatLevel == 1)
     {
         Serial.println("==============================");
-        Serial.println("          SENTINEL-X");
+        Serial.println("            VIGIL-X");
         Serial.println("ETAT : ANOMALIE");
         Serial.println("NIVEAU : 1");
         Serial.println("LED ORANGE");
@@ -374,7 +409,7 @@ void printThreatMessage()
     else
     {
         Serial.println("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
-        Serial.println("          SENTINEL-X");
+        Serial.println("            VIGIL-X");
         Serial.println("ETAT : ALERTE CRITIQUE");
         Serial.println("NIVEAU : 2");
         Serial.println("LED ROUGE");
@@ -388,7 +423,7 @@ void printThreatMessage()
 }
 
 // =====================================================
-// PUBLICATION MQTT
+// PUBLICATION MQTT TLS
 // =====================================================
 
 void publishSensorData(
@@ -403,7 +438,16 @@ void publishSensorData(
     snprintf(
         payload,
         sizeof(payload),
-        "{\"device_id\":\"esp32-wokwi\",\"temp\":%.1f,\"hum\":%.1f,\"gaz\":%d,\"gaz_base\":%d,\"pir\":%d,\"cam\":%d,\"level\":%d}",
+
+        "{\"device_id\":\"esp32-wokwi\","
+        "\"temp\":%.1f,"
+        "\"hum\":%.1f,"
+        "\"gaz\":%d,"
+        "\"gaz_base\":%d,"
+        "\"pir\":%d,"
+        "\"cam\":%d,"
+        "\"level\":%d}",
+
         temperature,
         humidity,
         gasValue,
@@ -419,7 +463,7 @@ void publishSensorData(
 
     if (published)
     {
-        Serial.print("MQTT PUB -> ");
+        Serial.print("MQTTS PUB -> ");
         Serial.print(MQTT_TOPIC);
         Serial.print(" : ");
         Serial.println(payload);
@@ -427,7 +471,7 @@ void publishSensorData(
     else
     {
         Serial.println(
-            "ERREUR : publication MQTT impossible");
+            "ERREUR : publication MQTT TLS impossible");
     }
 }
 
@@ -441,13 +485,17 @@ void setup()
 
     delay(500);
 
-    // Entrées
+    // ===============================
+    // ENTREES
+    // ===============================
 
     pinMode(PIN_PIR, INPUT);
     pinMode(PIN_CAM, INPUT_PULLUP);
     pinMode(PIN_MQ2, INPUT);
 
-    // Sorties
+    // ===============================
+    // SORTIES
+    // ===============================
 
     pinMode(PIN_BUZZER, OUTPUT);
 
@@ -455,11 +503,15 @@ void setup()
     pinMode(LED_ORANGE, OUTPUT);
     pinMode(LED_RED, OUTPUT);
 
+    // ===============================
     // DHT
+    // ===============================
 
     dht.begin();
 
-    // Etat initial
+    // ===============================
+    // ETAT INITIAL
+    // ===============================
 
     digitalWrite(LED_GREEN, HIGH);
     digitalWrite(LED_ORANGE, LOW);
@@ -469,7 +521,7 @@ void setup()
 
     Serial.println();
     Serial.println("==============================");
-    Serial.println("          SENTINEL-X");
+    Serial.println("            VIGIL-X");
     Serial.println("==============================");
     Serial.println();
 
@@ -478,6 +530,12 @@ void setup()
     // ===============================
 
     connectWiFi();
+
+    // ===============================
+    // TLS
+    // ===============================
+
+    configureTLS();
 
     // ===============================
     // MQTT
@@ -511,13 +569,17 @@ void setup()
 void loop()
 {
     // ===================================================
-    // MAINTIEN WIFI / MQTT
+    // MAINTIEN WIFI
     // ===================================================
 
     if (WiFi.status() != WL_CONNECTED)
     {
         connectWiFi();
     }
+
+    // ===================================================
+    // MAINTIEN MQTT
+    // ===================================================
 
     if (!mqttClient.connected())
     {
@@ -582,10 +644,8 @@ void loop()
             GAS_ABSOLUTE_CRITICAL);
 
         Serial.println();
-
         Serial.println(
-            "Sentinel-X operationnel.");
-
+            "VIGIL-X operationnel.");
         Serial.println();
 
         previousThreatLevel = -1;
@@ -626,7 +686,7 @@ void loop()
         digitalRead(PIN_CAM) == LOW;
 
     // ===================================================
-    // CALCUL NIVEAU DE MENACE
+    // CALCUL MENACE
     // ===================================================
 
     threatLevel =
@@ -676,7 +736,7 @@ void loop()
     Serial.println(threatLevel);
 
     // ===================================================
-    // PUBLICATION MQTT
+    // PUBLICATION MQTT TLS
     // ===================================================
 
     publishSensorData(
