@@ -25,21 +25,13 @@ const MAX_GRAPH_POINTS = 30;
 
 
 const EMPTY_TELEMETRY = {
-
     temperature: 0,
-
     humidity: 0,
-
     gas: 0,
-
     gas_baseline: 0,
-
     pir: false,
-
     camera: false,
-
     level: 0
-
 };
 
 
@@ -49,20 +41,15 @@ function parseApiDate(value) {
         return null;
     }
 
-
     const hasTimezone =
         value.endsWith("Z") ||
         /[+-]\d{2}:\d{2}$/.test(value);
 
-
     return new Date(
-
         hasTimezone
             ? value
             : `${value}Z`
-
     );
-
 }
 
 
@@ -73,31 +60,18 @@ function formatTime(value) {
             value
         );
 
-
     if (!date) {
         return "--";
     }
 
-
     return date.toLocaleTimeString(
-
         "fr-FR",
-
         {
-
-            hour:
-                "2-digit",
-
-            minute:
-                "2-digit",
-
-            second:
-                "2-digit"
-
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit"
         }
-
     );
-
 }
 
 
@@ -110,18 +84,14 @@ function formatNumber(
         value === null ||
         value === undefined
     ) {
-
         return "0";
-
     }
-
 
     return Number(
         value
     ).toFixed(
         decimals
     );
-
 }
 
 
@@ -396,11 +366,8 @@ export default function App() {
                     previous => {
 
                         const updated = [
-
                             ...previous,
-
                             ...newTelemetry
-
                         ];
 
 
@@ -477,11 +444,8 @@ export default function App() {
                     previous => {
 
                         const updated = [
-
                             ...previous,
-
                             ...newAiResults
-
                         ];
 
 
@@ -492,9 +456,6 @@ export default function App() {
                     }
                 );
 
-
-                // Toujours utiliser l'analyse IA
-                // la plus récente.
 
                 const latestAI =
                     newAiResults[
@@ -596,10 +557,6 @@ export default function App() {
     );
 
 
-    // ===================================================
-    // ETAT SYSTEME
-    // ===================================================
-
     const hasCurrentData =
         currentTelemetryId.current !== null;
 
@@ -655,10 +612,6 @@ export default function App() {
     }
 
 
-    // ===================================================
-    // ETAT IA
-    // ===================================================
-
     let aiText =
         "--";
 
@@ -712,8 +665,7 @@ export default function App() {
 
 
                     <p>
-                        Versatile Intelligent Guard for IoT
-                        & Local eXecution
+                        Vigilant Industrial Guard and Intelligence Layer
                     </p>
 
                 </div>
@@ -858,11 +810,8 @@ export default function App() {
 
 
                         <SensorChart
-
                             title="Température °C"
-
                             color="#fb7185"
-
                             labels={
                                 telemetryHistory.map(
                                     item =>
@@ -871,23 +820,18 @@ export default function App() {
                                         )
                                 )
                             }
-
                             values={
                                 telemetryHistory.map(
                                     item =>
                                         item.temperature
                                 )
                             }
-
                         />
 
 
                         <SensorChart
-
                             title="Humidité %"
-
                             color="#38bdf8"
-
                             labels={
                                 telemetryHistory.map(
                                     item =>
@@ -896,23 +840,18 @@ export default function App() {
                                         )
                                 )
                             }
-
                             values={
                                 telemetryHistory.map(
                                     item =>
                                         item.humidity
                                 )
                             }
-
                         />
 
 
                         <SensorChart
-
                             title="Gaz"
-
                             color="#fbbf24"
-
                             labels={
                                 telemetryHistory.map(
                                     item =>
@@ -921,14 +860,12 @@ export default function App() {
                                         )
                                 )
                             }
-
                             values={
                                 telemetryHistory.map(
                                     item =>
                                         item.gas
                                 )
                             }
-
                         />
 
                     </div>
