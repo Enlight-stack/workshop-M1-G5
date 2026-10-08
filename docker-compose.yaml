@@ -7,6 +7,7 @@ services:
     volumes:
       - ./infra/mosquitto.conf:/mosquitto/config/mosquitto.conf
 
+
   mongo:
     image: mongo:7
     environment:
@@ -14,6 +15,7 @@ services:
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD}
     volumes:
       - mongodata:/data/db
+
 
   api:
     build: ./api
@@ -26,18 +28,24 @@ services:
       - mongo
       - mosquitto
 
+
   mqtt-bridge:
     build: ./mqtt_bridge
     environment:
       MQTT_HOST: test.mosquitto.org
-      MQTT_PORT: 1883
+      MQTT_PORT: 8883
       MQTT_TOPIC: sentinel-x-g5-2026/sensors
-      MQTT_CLIENT_ID: sentinel-x-backend-bridge
+      MQTT_CLIENT_ID: vigil-x-g5-backend-bridge-2026-a7f3
+      MQTT_CA_CERT: /app/mosquitto.org.crt
+
       API_URL: http://api:5000/api/v1/telemetry
       API_KEY: ${API_KEY}
+
     depends_on:
       - api
+
     restart: unless-stopped
+
 
   ai:
     build: ./ai
@@ -50,6 +58,7 @@ services:
       - mongo
     restart: unless-stopped
 
+
   dashboard:
     build: ./dashboard
     ports:
@@ -60,6 +69,7 @@ services:
     depends_on:
       - api
     restart: unless-stopped
+
 
 volumes:
   mongodata:
