@@ -3,8 +3,12 @@
 #include <WiFiClientSecure.h>
 #include <PubSubClient.h>
 
+#include <time.h>
+#include "mbedtls/md.h"
+
 // =====================================================
-// VIGIL-X - WOKWI + MQTT TLS
+// VIGIL-X
+// MQTT TLS + HMAC-SHA256 + NTP
 // =====================================================
 
 // =====================================================
@@ -38,9 +42,21 @@ m/XriWr/Cq4h/JfB7NTsezVslgkBaoU=
 -----END CERTIFICATE-----
 )EOF";
 
-// ===============================
+// =====================================================
+// SECRET HMAC
+// =====================================================
+//
+// Mets exactement la même clé que HMAC_SECRET
+// dans ton fichier .env.
+// Ne commit pas la vraie clé sur GitHub.
+//
+
+const char *HMAC_SECRET =
+    "126994ddffbe6a14bf4b3d27387d7b4e3da3675162d3a676287b5e5749ec606f";
+
+// =====================================================
 // BROCHES
-// ===============================
+// =====================================================
 
 #define PIN_DHT 15
 #define PIN_PIR 13
@@ -53,27 +69,35 @@ m/XriWr/Cq4h/JfB7NTsezVslgkBaoU=
 #define LED_ORANGE 26
 #define LED_RED 27
 
-// ===============================
+// =====================================================
 // DHT22
-// ===============================
+// =====================================================
 
 #define DHTTYPE DHT22
 
-DHT dht(PIN_DHT, DHTTYPE);
+DHT dht(
+    PIN_DHT,
+    DHTTYPE);
 
-// ===============================
-// WIFI WOKWI
-// ===============================
+// =====================================================
+// WIFI
+// =====================================================
 
-const char *WIFI_SSID = "Wokwi-GUEST";
-const char *WIFI_PASSWORD = "";
+const char *WIFI_SSID =
+    "Wokwi-GUEST";
 
-// ===============================
+const char *WIFI_PASSWORD =
+    "";
+
+// =====================================================
 // MQTT TLS
-// ===============================
+// =====================================================
 
-const char *MQTT_SERVER = "test.mosquitto.org";
-const int MQTT_PORT = 8883;
+const char *MQTT_SERVER =
+    "test.mosquitto.org";
+
+const int MQTT_PORT =
+    8883;
 
 const char *MQTT_CLIENT_ID =
     "vigil-x-g5-esp32-wokwi-2026-a7f3";
@@ -81,16 +105,17 @@ const char *MQTT_CLIENT_ID =
 const char *MQTT_TOPIC =
     "sentinel-x-g5-2026/sensors";
 
-// ===============================
-// CLIENT TLS
-// ===============================
+const char *DEVICE_ID =
+    "esp32-wokwi";
 
 WiFiClientSecure secureClient;
-PubSubClient mqttClient(secureClient);
 
-// ===============================
+PubSubClient mqttClient(
+    secureClient);
+
+// =====================================================
 // SEUILS TEMPERATURE
-// ===============================
+// =====================================================
 
 const float TEMP_WARNING_LOW = 18.0;
 const float TEMP_WARNING_HIGH = 28.0;
@@ -98,9 +123,9 @@ const float TEMP_WARNING_HIGH = 28.0;
 const float TEMP_CRITICAL_LOW = 10.0;
 const float TEMP_CRITICAL_HIGH = 40.0;
 
-// ===============================
+// =====================================================
 // SEUILS HUMIDITE
-// ===============================
+// =====================================================
 
 const float HUM_WARNING_LOW = 30.0;
 const float HUM_WARNING_HIGH = 70.0;
@@ -108,9 +133,9 @@ const float HUM_WARNING_HIGH = 70.0;
 const float HUM_CRITICAL_LOW = 20.0;
 const float HUM_CRITICAL_HIGH = 85.0;
 
-// ===============================
+// =====================================================
 // SEUILS GAZ
-// ===============================
+// =====================================================
 
 const int GAS_DELTA_WARNING = 400;
 const int GAS_DELTA_CRITICAL = 800;
@@ -118,21 +143,29 @@ const int GAS_DELTA_CRITICAL = 800;
 const int GAS_ABSOLUTE_WARNING = 3000;
 const int GAS_ABSOLUTE_CRITICAL = 3500;
 
-// ===============================
-// TEMPS
-// ===============================
+// =====================================================
+// TIMERS
+// =====================================================
 
 const unsigned long CALIBRATION_TIME = 5000;
+
 const unsigned long READ_INTERVAL = 1000;
 
-// ===============================
+// Resynchronisation NTP toutes les 60 secondes
+const unsigned long NTP_RESYNC_INTERVAL = 60000;
+
+// =====================================================
 // VARIABLES
-// ===============================
+// =====================================================
 
 unsigned long startTime = 0;
+
 unsigned long lastRead = 0;
 
+unsigned long lastNtpSync = 0;
+
 long gasCalibrationSum = 0;
+
 int gasCalibrationCount = 0;
 
 int gasBaseline = 0;
@@ -140,6 +173,7 @@ int gasBaseline = 0;
 bool calibrationFinished = false;
 
 int threatLevel = 0;
+
 int previousThreatLevel = -1;
 
 // =====================================================
@@ -148,42 +182,186 @@ int previousThreatLevel = -1;
 
 void connectWiFi()
 {
-    if (WiFi.status() == WL_CONNECTED)
+    if (
+        WiFi.status() ==
+        WL_CONNECTED)
     {
         return;
     }
 
-    Serial.print("Connexion WiFi");
+    Serial.print(
+        "Connexion WiFi");
 
-    WiFi.mode(WIFI_STA);
+    WiFi.mode(
+        WIFI_STA);
 
     WiFi.begin(
         WIFI_SSID,
         WIFI_PASSWORD,
         6);
 
-    while (WiFi.status() != WL_CONNECTED)
+    while (
+        WiFi.status() !=
+        WL_CONNECTED)
     {
-        delay(250);
-        Serial.print(".");
+        delay(
+            250);
+
+        Serial.print(
+            ".");
     }
 
     Serial.println();
-    Serial.println("WiFi connecte.");
 
-    Serial.print("Adresse IP ESP32 : ");
-    Serial.println(WiFi.localIP());
+    Serial.println(
+        "WiFi connecte.");
+
+    Serial.print(
+        "Adresse IP ESP32 : ");
+
+    Serial.println(
+        WiFi.localIP());
 
     Serial.println();
 }
 
 // =====================================================
-// TLS
+// SYNCHRONISATION NTP
+// =====================================================
+
+void synchronizeTime(
+    bool verbose = true)
+{
+    if (
+        WiFi.status() !=
+        WL_CONNECTED)
+    {
+        return;
+    }
+
+    if (
+        verbose)
+    {
+        Serial.print(
+            "Synchronisation NTP");
+    }
+
+    configTime(
+        0,
+        0,
+        "pool.ntp.org",
+        "time.google.com",
+        "time.nist.gov");
+
+    time_t now =
+        time(
+            nullptr);
+
+    int attempts = 0;
+
+    while (
+        now <
+            1700000000 &&
+        attempts <
+            20)
+    {
+        delay(
+            250);
+
+        if (
+            verbose)
+        {
+            Serial.print(
+                ".");
+        }
+
+        now =
+            time(
+                nullptr);
+
+        attempts++;
+    }
+
+    lastNtpSync =
+        millis();
+
+    if (
+        verbose)
+    {
+        Serial.println();
+
+        if (
+            now >=
+            1700000000)
+        {
+            Serial.println(
+                "Heure synchronisee.");
+
+            Serial.print(
+                "Timestamp UNIX : ");
+
+            Serial.println(
+                (long long)
+                    now);
+        }
+
+        else
+        {
+            Serial.println(
+                "ATTENTION : synchronisation NTP incomplete.");
+        }
+
+        Serial.println();
+    }
+}
+
+// =====================================================
+// RESYNCHRONISATION NTP PERIODIQUE
+// =====================================================
+
+void checkNtpResync()
+{
+    if (
+        millis() -
+            lastNtpSync <
+        NTP_RESYNC_INTERVAL)
+    {
+        return;
+    }
+
+    Serial.println();
+
+    Serial.println(
+        "[NTP] Resynchronisation periodique...");
+
+    synchronizeTime(
+        false);
+
+    time_t now =
+        time(
+            nullptr);
+
+    Serial.print(
+        "[NTP] Timestamp actuel : ");
+
+    Serial.println(
+        (long long)
+            now);
+
+    Serial.println(
+        "[NTP] Synchronisation terminee.");
+
+    Serial.println();
+}
+
+// =====================================================
+// CONFIGURATION TLS
 // =====================================================
 
 void configureTLS()
 {
-    Serial.println("Configuration TLS...");
+    Serial.println(
+        "Configuration TLS...");
 
     secureClient.setCACert(
         MOSQUITTO_CA_CERT);
@@ -195,12 +373,87 @@ void configureTLS()
 }
 
 // =====================================================
-// MQTT
+// HMAC SHA-256
+// =====================================================
+
+String calculateHMAC(
+    const String &message)
+{
+    unsigned char result[32];
+
+    const mbedtls_md_info_t *mdInfo =
+        mbedtls_md_info_from_type(
+            MBEDTLS_MD_SHA256);
+
+    if (
+        mdInfo ==
+        nullptr)
+    {
+        return "";
+    }
+
+    int resultCode =
+        mbedtls_md_hmac(
+            mdInfo,
+
+            (
+                const unsigned char *)
+                HMAC_SECRET,
+
+            strlen(
+                HMAC_SECRET),
+
+            (
+                const unsigned char *)
+                message.c_str(),
+
+            message.length(),
+
+            result);
+
+    if (
+        resultCode !=
+        0)
+    {
+        Serial.print(
+            "[HMAC] Erreur calcul : ");
+
+        Serial.println(
+            resultCode);
+
+        return "";
+    }
+
+    char hexResult[65];
+
+    for (
+        int i = 0;
+        i < 32;
+        i++)
+    {
+        sprintf(
+            &hexResult[i * 2],
+
+            "%02x",
+
+            result[i]);
+    }
+
+    hexResult[64] =
+        '\0';
+
+    return String(
+        hexResult);
+}
+
+// =====================================================
+// CONNEXION MQTT
 // =====================================================
 
 void connectMQTT()
 {
-    while (!mqttClient.connected())
+    while (
+        !mqttClient.connected())
     {
         Serial.print(
             "Connexion MQTT TLS... ");
@@ -209,21 +462,36 @@ void connectMQTT()
             mqttClient.connect(
                 MQTT_CLIENT_ID))
         {
-            Serial.println("OK");
+            Serial.println(
+                "OK");
 
-            Serial.print("Broker TLS : ");
-            Serial.print(MQTT_SERVER);
-            Serial.print(":");
-            Serial.println(MQTT_PORT);
+            Serial.print(
+                "Broker TLS : ");
 
-            Serial.print("Topic : ");
-            Serial.println(MQTT_TOPIC);
+            Serial.print(
+                MQTT_SERVER);
+
+            Serial.print(
+                ":");
+
+            Serial.println(
+                MQTT_PORT);
+
+            Serial.print(
+                "Topic : ");
+
+            Serial.println(
+                MQTT_TOPIC);
 
             Serial.println(
                 "Transport : MQTTS / TLS");
 
+            Serial.println(
+                "Authentification : HMAC-SHA256");
+
             Serial.println();
         }
+
         else
         {
             Serial.print(
@@ -235,7 +503,8 @@ void connectMQTT()
             Serial.println(
                 "Nouvelle tentative dans 2 secondes...");
 
-            delay(2000);
+            delay(
+                2000);
         }
     }
 }
@@ -246,34 +515,68 @@ void connectMQTT()
 
 void applyOutputs()
 {
-    if (threatLevel == 0)
+    if (
+        threatLevel ==
+        0)
     {
-        digitalWrite(LED_GREEN, HIGH);
-        digitalWrite(LED_ORANGE, LOW);
-        digitalWrite(LED_RED, LOW);
+        digitalWrite(
+            LED_GREEN,
+            HIGH);
 
-        noTone(PIN_BUZZER);
+        digitalWrite(
+            LED_ORANGE,
+            LOW);
+
+        digitalWrite(
+            LED_RED,
+            LOW);
+
+        noTone(
+            PIN_BUZZER);
     }
-    else if (threatLevel == 1)
+
+    else if (
+        threatLevel ==
+        1)
     {
-        digitalWrite(LED_GREEN, LOW);
-        digitalWrite(LED_ORANGE, HIGH);
-        digitalWrite(LED_RED, LOW);
+        digitalWrite(
+            LED_GREEN,
+            LOW);
 
-        noTone(PIN_BUZZER);
+        digitalWrite(
+            LED_ORANGE,
+            HIGH);
+
+        digitalWrite(
+            LED_RED,
+            LOW);
+
+        noTone(
+            PIN_BUZZER);
     }
+
     else
     {
-        digitalWrite(LED_GREEN, LOW);
-        digitalWrite(LED_ORANGE, LOW);
-        digitalWrite(LED_RED, HIGH);
+        digitalWrite(
+            LED_GREEN,
+            LOW);
 
-        tone(PIN_BUZZER, 1000);
+        digitalWrite(
+            LED_ORANGE,
+            LOW);
+
+        digitalWrite(
+            LED_RED,
+            HIGH);
+
+        tone(
+            PIN_BUZZER,
+            1000);
     }
 }
 
 // =====================================================
-// CALCUL NIVEAU DE MENACE
+// CALCUL DU NIVEAU DE MENACE
 // =====================================================
 
 int calculateThreatLevel(
@@ -283,88 +586,120 @@ int calculateThreatLevel(
     int pir,
     int camera)
 {
-    // ==========================================
+    // =================================================
     // NIVEAU 2 : CRITIQUE
-    // ==========================================
+    // =================================================
 
-    if (pir == HIGH && camera == 1)
+    if (
+        pir ==
+            HIGH &&
+        camera ==
+            1)
     {
         return 2;
     }
 
-    if (gasValue >= GAS_ABSOLUTE_CRITICAL)
+    if (
+        gasValue >=
+        GAS_ABSOLUTE_CRITICAL)
     {
         return 2;
     }
 
     if (
         calibrationFinished &&
-        gasValue >= gasBaseline + GAS_DELTA_CRITICAL)
+        gasValue >=
+            gasBaseline +
+                GAS_DELTA_CRITICAL)
     {
         return 2;
     }
 
-    if (!isnan(temperature))
+    if (
+        !isnan(
+            temperature))
     {
         if (
-            temperature < TEMP_CRITICAL_LOW ||
-            temperature > TEMP_CRITICAL_HIGH)
+            temperature <
+                TEMP_CRITICAL_LOW ||
+            temperature >
+                TEMP_CRITICAL_HIGH)
         {
             return 2;
         }
     }
 
-    if (!isnan(humidity))
+    if (
+        !isnan(
+            humidity))
     {
         if (
-            humidity < HUM_CRITICAL_LOW ||
-            humidity > HUM_CRITICAL_HIGH)
+            humidity <
+                HUM_CRITICAL_LOW ||
+            humidity >
+                HUM_CRITICAL_HIGH)
         {
             return 2;
         }
     }
 
-    // ==========================================
+    // =================================================
     // NIVEAU 1 : WARNING
-    // ==========================================
+    // =================================================
 
-    if (pir == HIGH)
+    if (
+        pir ==
+        HIGH)
     {
         return 1;
     }
 
-    if (camera == 1)
+    if (
+        camera ==
+        1)
     {
         return 1;
     }
 
-    if (gasValue >= GAS_ABSOLUTE_WARNING)
+    if (
+        gasValue >=
+        GAS_ABSOLUTE_WARNING)
     {
         return 1;
     }
 
     if (
         calibrationFinished &&
-        gasValue >= gasBaseline + GAS_DELTA_WARNING)
+        gasValue >=
+            gasBaseline +
+                GAS_DELTA_WARNING)
     {
         return 1;
     }
 
-    if (!isnan(temperature))
+    if (
+        !isnan(
+            temperature))
     {
         if (
-            temperature < TEMP_WARNING_LOW ||
-            temperature > TEMP_WARNING_HIGH)
+            temperature <
+                TEMP_WARNING_LOW ||
+            temperature >
+                TEMP_WARNING_HIGH)
         {
             return 1;
         }
     }
 
-    if (!isnan(humidity))
+    if (
+        !isnan(
+            humidity))
     {
         if (
-            humidity < HUM_WARNING_LOW ||
-            humidity > HUM_WARNING_HIGH)
+            humidity <
+                HUM_WARNING_LOW ||
+            humidity >
+                HUM_WARNING_HIGH)
         {
             return 1;
         }
@@ -374,56 +709,104 @@ int calculateThreatLevel(
 }
 
 // =====================================================
-// MESSAGE CHANGEMENT DE NIVEAU
+// AFFICHAGE DU NIVEAU
 // =====================================================
 
 void printThreatMessage()
 {
-    if (threatLevel == previousThreatLevel)
+    if (
+        threatLevel ==
+        previousThreatLevel)
     {
         return;
     }
 
     Serial.println();
 
-    if (threatLevel == 0)
+    if (
+        threatLevel ==
+        0)
     {
-        Serial.println("==============================");
-        Serial.println("            VIGIL-X");
-        Serial.println("ETAT : NORMAL");
-        Serial.println("NIVEAU : 0");
-        Serial.println("LED VERTE");
-        Serial.println("BUZZER OFF");
-        Serial.println("==============================");
+        Serial.println(
+            "==============================");
+
+        Serial.println(
+            "            VIGIL-X");
+
+        Serial.println(
+            "ETAT : NORMAL");
+
+        Serial.println(
+            "NIVEAU : 0");
+
+        Serial.println(
+            "LED VERTE");
+
+        Serial.println(
+            "BUZZER OFF");
+
+        Serial.println(
+            "==============================");
     }
-    else if (threatLevel == 1)
+
+    else if (
+        threatLevel ==
+        1)
     {
-        Serial.println("==============================");
-        Serial.println("            VIGIL-X");
-        Serial.println("ETAT : ANOMALIE");
-        Serial.println("NIVEAU : 1");
-        Serial.println("LED ORANGE");
-        Serial.println("BUZZER OFF");
-        Serial.println("==============================");
+        Serial.println(
+            "==============================");
+
+        Serial.println(
+            "            VIGIL-X");
+
+        Serial.println(
+            "ETAT : ANOMALIE");
+
+        Serial.println(
+            "NIVEAU : 1");
+
+        Serial.println(
+            "LED ORANGE");
+
+        Serial.println(
+            "BUZZER OFF");
+
+        Serial.println(
+            "==============================");
     }
+
     else
     {
-        Serial.println("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
-        Serial.println("            VIGIL-X");
-        Serial.println("ETAT : ALERTE CRITIQUE");
-        Serial.println("NIVEAU : 2");
-        Serial.println("LED ROUGE");
-        Serial.println("BUZZER ON");
-        Serial.println("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+        Serial.println(
+            "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+
+        Serial.println(
+            "            VIGIL-X");
+
+        Serial.println(
+            "ETAT : ALERTE CRITIQUE");
+
+        Serial.println(
+            "NIVEAU : 2");
+
+        Serial.println(
+            "LED ROUGE");
+
+        Serial.println(
+            "BUZZER ON");
+
+        Serial.println(
+            "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
     }
 
     Serial.println();
 
-    previousThreatLevel = threatLevel;
+    previousThreatLevel =
+        threatLevel;
 }
 
 // =====================================================
-// PUBLICATION MQTT TLS
+// PUBLICATION MQTT TLS + HMAC
 // =====================================================
 
 void publishSensorData(
@@ -433,45 +816,157 @@ void publishSensorData(
     int pir,
     int camera)
 {
-    char payload[256];
+    // =================================================
+    // VERIFICATION TIMESTAMP
+    // =================================================
+
+    time_t timestamp =
+        time(
+            nullptr);
+
+    if (
+        timestamp <
+        1700000000)
+    {
+        Serial.println(
+            "[SECURITY] Timestamp invalide.");
+
+        Serial.println(
+            "[SECURITY] Publication annulee.");
+
+        return;
+    }
+
+    // =================================================
+    // CHAINE CANONIQUE A SIGNER
+    // =================================================
+    //
+    // IMPORTANT :
+    // doit rester identique au backend Python.
+    //
+    // device_id|temp|hum|gaz|gaz_base|pir|cam|level|timestamp
+    // =================================================
+
+    char signingBuffer[256];
+
+    snprintf(
+        signingBuffer,
+
+        sizeof(
+            signingBuffer),
+
+        "%s|%.1f|%.1f|%d|%d|%d|%d|%d|%lld",
+
+        DEVICE_ID,
+
+        temperature,
+
+        humidity,
+
+        gasValue,
+
+        gasBaseline,
+
+        pir,
+
+        camera,
+
+        threatLevel,
+
+        (long long)
+            timestamp);
+
+    String signingString =
+        String(
+            signingBuffer);
+
+    // =================================================
+    // SIGNATURE HMAC
+    // =================================================
+
+    String signature =
+        calculateHMAC(
+            signingString);
+
+    if (
+        signature.length() !=
+        64)
+    {
+        Serial.println(
+            "[SECURITY] Signature HMAC invalide.");
+
+        return;
+    }
+
+    // =================================================
+    // JSON FINAL
+    // =================================================
+
+    char payload[512];
 
     snprintf(
         payload,
-        sizeof(payload),
 
-        "{\"device_id\":\"esp32-wokwi\","
+        sizeof(
+            payload),
+
+        "{"
+        "\"device_id\":\"%s\","
         "\"temp\":%.1f,"
         "\"hum\":%.1f,"
         "\"gaz\":%d,"
         "\"gaz_base\":%d,"
         "\"pir\":%d,"
         "\"cam\":%d,"
-        "\"level\":%d}",
+        "\"level\":%d,"
+        "\"timestamp\":%lld,"
+        "\"signature\":\"%s\""
+        "}",
+
+        DEVICE_ID,
 
         temperature,
+
         humidity,
+
         gasValue,
+
         gasBaseline,
+
         pir,
+
         camera,
-        threatLevel);
+
+        threatLevel,
+
+        (long long)
+            timestamp,
+
+        signature.c_str());
+
+    // =================================================
+    // PUBLICATION
+    // =================================================
 
     bool published =
         mqttClient.publish(
             MQTT_TOPIC,
             payload);
 
-    if (published)
+    if (
+        published)
     {
-        Serial.print("MQTTS PUB -> ");
-        Serial.print(MQTT_TOPIC);
-        Serial.print(" : ");
-        Serial.println(payload);
+        Serial.print(
+            "MQTTS + HMAC PUB -> ");
+
+        Serial.println(
+            payload);
     }
+
     else
     {
         Serial.println(
-            "ERREUR : publication MQTT TLS impossible");
+            "ERREUR publication MQTT.");
     }
 }
 
@@ -481,65 +976,100 @@ void publishSensorData(
 
 void setup()
 {
-    Serial.begin(115200);
+    Serial.begin(
+        115200);
 
-    delay(500);
+    delay(
+        500);
 
-    // ===============================
+    // =================================================
     // ENTREES
-    // ===============================
+    // =================================================
 
-    pinMode(PIN_PIR, INPUT);
-    pinMode(PIN_CAM, INPUT_PULLUP);
-    pinMode(PIN_MQ2, INPUT);
+    pinMode(
+        PIN_PIR,
+        INPUT);
 
-    // ===============================
+    pinMode(
+        PIN_CAM,
+        INPUT_PULLUP);
+
+    pinMode(
+        PIN_MQ2,
+        INPUT);
+
+    // =================================================
     // SORTIES
-    // ===============================
+    // =================================================
 
-    pinMode(PIN_BUZZER, OUTPUT);
+    pinMode(
+        PIN_BUZZER,
+        OUTPUT);
 
-    pinMode(LED_GREEN, OUTPUT);
-    pinMode(LED_ORANGE, OUTPUT);
-    pinMode(LED_RED, OUTPUT);
+    pinMode(
+        LED_GREEN,
+        OUTPUT);
 
-    // ===============================
-    // DHT
-    // ===============================
+    pinMode(
+        LED_ORANGE,
+        OUTPUT);
+
+    pinMode(
+        LED_RED,
+        OUTPUT);
 
     dht.begin();
 
-    // ===============================
-    // ETAT INITIAL
-    // ===============================
+    digitalWrite(
+        LED_GREEN,
+        HIGH);
 
-    digitalWrite(LED_GREEN, HIGH);
-    digitalWrite(LED_ORANGE, LOW);
-    digitalWrite(LED_RED, LOW);
+    digitalWrite(
+        LED_ORANGE,
+        LOW);
 
-    noTone(PIN_BUZZER);
+    digitalWrite(
+        LED_RED,
+        LOW);
+
+    noTone(
+        PIN_BUZZER);
 
     Serial.println();
-    Serial.println("==============================");
-    Serial.println("            VIGIL-X");
-    Serial.println("==============================");
+
+    Serial.println(
+        "==============================");
+
+    Serial.println(
+        "            VIGIL-X");
+
+    Serial.println(
+        "==============================");
+
     Serial.println();
 
-    // ===============================
+    // =================================================
     // WIFI
-    // ===============================
+    // =================================================
 
     connectWiFi();
 
-    // ===============================
+    // =================================================
+    // NTP
+    // =================================================
+
+    synchronizeTime(
+        true);
+
+    // =================================================
     // TLS
-    // ===============================
+    // =================================================
 
     configureTLS();
 
-    // ===============================
+    // =================================================
     // MQTT
-    // ===============================
+    // =================================================
 
     mqttClient.setServer(
         MQTT_SERVER,
@@ -547,11 +1077,12 @@ void setup()
 
     connectMQTT();
 
-    // ===============================
-    // CALIBRATION
-    // ===============================
+    // =================================================
+    // CALIBRATION MQ-2
+    // =================================================
 
-    startTime = millis();
+    startTime =
+        millis();
 
     Serial.println(
         "Calibration du capteur MQ-2...");
@@ -568,107 +1099,121 @@ void setup()
 
 void loop()
 {
-    // ===================================================
-    // MAINTIEN WIFI
-    // ===================================================
+    // =================================================
+    // WIFI
+    // =================================================
 
-    if (WiFi.status() != WL_CONNECTED)
+    if (
+        WiFi.status() !=
+        WL_CONNECTED)
     {
         connectWiFi();
+
+        synchronizeTime(
+            true);
     }
 
-    // ===================================================
-    // MAINTIEN MQTT
-    // ===================================================
+    // =================================================
+    // NTP PERIODIQUE
+    // =================================================
 
-    if (!mqttClient.connected())
+    checkNtpResync();
+
+    // =================================================
+    // MQTT
+    // =================================================
+
+    if (
+        !mqttClient.connected())
     {
         connectMQTT();
     }
 
     mqttClient.loop();
 
-    // ===================================================
+    // =================================================
     // CALIBRATION MQ-2
-    // ===================================================
+    // =================================================
 
-    if (!calibrationFinished)
+    if (
+        !calibrationFinished)
     {
         int gasValue =
-            analogRead(PIN_MQ2);
+            analogRead(
+                PIN_MQ2);
 
-        gasCalibrationSum += gasValue;
+        gasCalibrationSum +=
+            gasValue;
+
         gasCalibrationCount++;
 
         if (
-            millis() - startTime <
+            millis() -
+                startTime <
             CALIBRATION_TIME)
         {
-            delay(100);
+            delay(
+                100);
+
             return;
         }
 
-        if (gasCalibrationCount > 0)
+        if (
+            gasCalibrationCount >
+            0)
         {
             gasBaseline =
                 gasCalibrationSum /
                 gasCalibrationCount;
         }
 
-        calibrationFinished = true;
+        calibrationFinished =
+            true;
 
         Serial.println();
-        Serial.println("==============================");
-        Serial.println("CALIBRATION MQ-2 TERMINEE");
-        Serial.println("==============================");
 
-        Serial.print("Baseline gaz : ");
-        Serial.println(gasBaseline);
-
-        Serial.print("Warning relatif : ");
         Serial.println(
-            gasBaseline +
-            GAS_DELTA_WARNING);
+            "==============================");
 
-        Serial.print("Critique relatif : ");
         Serial.println(
-            gasBaseline +
-            GAS_DELTA_CRITICAL);
+            "CALIBRATION MQ-2 TERMINEE");
 
-        Serial.print("Warning absolu : ");
         Serial.println(
-            GAS_ABSOLUTE_WARNING);
+            "==============================");
 
-        Serial.print("Critique absolu : ");
+        Serial.print(
+            "Baseline gaz : ");
+
         Serial.println(
-            GAS_ABSOLUTE_CRITICAL);
+            gasBaseline);
 
         Serial.println();
+
         Serial.println(
             "VIGIL-X operationnel.");
+
         Serial.println();
 
-        previousThreatLevel = -1;
+        previousThreatLevel =
+            -1;
 
         return;
     }
 
-    // ===================================================
-    // LECTURE CHAQUE SECONDE
-    // ===================================================
+    // =================================================
+    // LECTURE CAPTEURS
+    // =================================================
 
     if (
-        millis() - lastRead <
+        millis() -
+            lastRead <
         READ_INTERVAL)
     {
         return;
     }
 
-    lastRead = millis();
-
-    // ===================================================
-    // LECTURE CAPTEURS
-    // ===================================================
+    lastRead =
+        millis();
 
     float temperature =
         dht.readTemperature();
@@ -677,17 +1222,21 @@ void loop()
         dht.readHumidity();
 
     int gasValue =
-        analogRead(PIN_MQ2);
+        analogRead(
+            PIN_MQ2);
 
     int pir =
-        digitalRead(PIN_PIR);
+        digitalRead(
+            PIN_PIR);
 
     int camera =
-        digitalRead(PIN_CAM) == LOW;
+        digitalRead(
+            PIN_CAM) ==
+        LOW;
 
-    // ===================================================
+    // =================================================
     // CALCUL MENACE
-    // ===================================================
+    // =================================================
 
     threatLevel =
         calculateThreatLevel(
@@ -697,47 +1246,74 @@ void loop()
             pir,
             camera);
 
-    // ===================================================
-    // LEDS + BUZZER
-    // ===================================================
+    // =================================================
+    // SORTIES
+    // =================================================
 
     applyOutputs();
 
     printThreatMessage();
 
-    // ===================================================
-    // AFFICHAGE LOCAL
-    // ===================================================
+    // =================================================
+    // AFFICHAGE
+    // =================================================
 
     Serial.println(
         "------- CAPTEURS -------");
 
-    Serial.print("Temperature : ");
-    Serial.print(temperature, 1);
-    Serial.println(" C");
+    Serial.print(
+        "Temperature : ");
 
-    Serial.print("Humidite    : ");
-    Serial.print(humidity, 1);
-    Serial.println(" %");
+    Serial.print(
+        temperature,
+        1);
 
-    Serial.print("Gaz         : ");
-    Serial.println(gasValue);
+    Serial.println(
+        " C");
 
-    Serial.print("Gaz baseline: ");
-    Serial.println(gasBaseline);
+    Serial.print(
+        "Humidite    : ");
 
-    Serial.print("PIR         : ");
-    Serial.println(pir);
+    Serial.print(
+        humidity,
+        1);
 
-    Serial.print("Camera      : ");
-    Serial.println(camera);
+    Serial.println(
+        " %");
 
-    Serial.print("Niveau      : ");
-    Serial.println(threatLevel);
+    Serial.print(
+        "Gaz         : ");
 
-    // ===================================================
-    // PUBLICATION MQTT TLS
-    // ===================================================
+    Serial.println(
+        gasValue);
+
+    Serial.print(
+        "Gaz baseline: ");
+
+    Serial.println(
+        gasBaseline);
+
+    Serial.print(
+        "PIR         : ");
+
+    Serial.println(
+        pir);
+
+    Serial.print(
+        "Camera      : ");
+
+    Serial.println(
+        camera);
+
+    Serial.print(
+        "Niveau      : ");
+
+    Serial.println(
+        threatLevel);
+
+    // =================================================
+    // MQTT TLS + HMAC
+    // =================================================
 
     publishSensorData(
         temperature,
