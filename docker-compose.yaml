@@ -28,15 +28,18 @@ services:
       - mongo
       - mosquitto
 
-
   mqtt-bridge:
     build: ./mqtt_bridge
+
     environment:
       MQTT_HOST: test.mosquitto.org
       MQTT_PORT: 8883
       MQTT_TOPIC: sentinel-x-g5-2026/sensors
       MQTT_CLIENT_ID: vigil-x-g5-backend-bridge-2026-a7f3
       MQTT_CA_CERT: /app/mosquitto.org.crt
+
+      HMAC_SECRET: ${HMAC_SECRET}
+      HMAC_MAX_AGE_SECONDS: ${HMAC_MAX_AGE_SECONDS}
 
       API_URL: http://api:5000/api/v1/telemetry
       API_KEY: ${API_KEY}
@@ -45,8 +48,7 @@ services:
       - api
 
     restart: unless-stopped
-
-
+  
   ai:
     build: ./ai
     environment:
